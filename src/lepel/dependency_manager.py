@@ -3,7 +3,6 @@ import inspect
 from typing import Any, Callable, Type, get_type_hints, overload
 
 from dependency_injector import providers
-from dependency_injector.containers import Container, DynamicContainer
 
 
 class DependencyManager:
@@ -11,26 +10,19 @@ class DependencyManager:
     Supports `dependency_injector.providers` as factory methods.
     """
 
-    _container: DynamicContainer
     _context_vars: dict[str, Any]
     _config: dict[str, Any]
     type_providers: dict[type, Callable[..., Any]]
 
     def __init__(
         self,
-        container: Container | None = None,
         config: dict[str, Any] | None = None,
     ) -> None:
-        self._container = DynamicContainer()
         self._config = config or {}
         self._context_vars = {'config': self._config}
         self._type_providers: dict[type, Callable[..., Any]] = {}
 
         self.register_singleton(self)
-
-        if container:
-            for provider in container.providers.values():
-                self.register(provider)
 
     # def __contains__(self, dependency: str | Type[Any] | None) -> bool:
     def __contains__(self, dependency: Any) -> bool:
@@ -152,12 +144,14 @@ class DependencyManager:
         allow_override: bool = False,
     ) -> None:
         if service_class is None:
-            if isinstance(factory, providers.Provider):
-                service_class = _get_provider_type(factory)  # type: ignore
-            elif isinstance(factory, type):
-                service_class = factory
-            else:  # Normal callable
-                service_class = _get_callable_return_type(factory)
+            try:
+                if isinstance(factory, type):  # Class
+                    service_class = factory
+                else:  # Normal callable
+                    service_class = _get_callable_return_type(factory)
+            except:
+                # Fallback for third party dependency providers/factories like `dependency-injector`.
+                service_class = _try_third_party_di_type(factory)
 
         if service_class is None:
             raise RuntimeError('Cannot get dependency type from factory.')
@@ -167,9 +161,7 @@ class DependencyManager:
                 f'Dependency with type "{service_class.__name__}" already registered.'
             )
 
-        if isinstance(factory, providers.Provider):
-            self._type_providers[service_class] = factory
-        elif isinstance(factory, type):
+        if isinstance(factory, type):
             self._type_providers[service_class] = self.wire_class(factory)
         else:
             self._type_providers[service_class] = self.wire_factory(factory)
@@ -330,7 +322,16 @@ def _same_types(a: Any, b: Type[Any]) -> bool:
     return b is inspect._empty or type(a) == b
 
 
-def _get_provider_type(provider: providers.Provider[Any]) -> Type[Any] | None:
+def _try_third_party_di_type(factory: Callable[..., Any]) -> Type[Any] | None:
+    return (
+        _get_dependency_injector_provider_type(factory)
+        # or _get_dependency_injector_provider_type(factory)
+        # or _get_dependency_injector_provider_type(factory)
+    )
+
+
+def _get_dependency_injector_provider_type(provider: Callable[..., Any]) -> Type[Any] | None:
+    """For the `dependency-injector` library."""
     provides = getattr(provider, "provides", None)
 
     if provides is not None:

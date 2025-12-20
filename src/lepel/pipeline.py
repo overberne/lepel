@@ -1,31 +1,59 @@
 # pyright: reportPrivateUsage=false
 from abc import ABC, abstractmethod
 from logging import Logger, getLogger
-from typing import Any
-
-from dependency_injector.containers import Container
+from typing import Any, Callable, Protocol
 
 from lepel.dependency_manager import DependencyManager
 
 
 class PipelineStep(ABC):
-    @abstractmethod
-    def run(self, *args: Any, **kwargs: Any) -> None:
-        raise NotImplementedError()
+    result: Any = None
 
-    @property
-    def result(self) -> dict[str, Any]:
+    @abstractmethod
+    def run(self, *args: Any, **kwargs: Any) -> Any:
         raise NotImplementedError()
 
 
 class AsyncPipelineStep(ABC):
+    result: dict[str, Any] | None = None
+
     @abstractmethod
     async def arun(self, **kwargs: Any) -> None:
         raise NotImplementedError()
 
-    @property
-    def result(self) -> dict[str, Any]:
-        raise NotImplementedError()
+
+def run_pipeline(pipeline: Callable[..., Any], checkpoint: str | None = None) -> None:
+    # TODO: For all implementations of pipeline step, replace run funcs
+    # - When loading a save
+    #   - Run up to save point with that given position
+    #   - Need to get result from memory
+    #     - Use a map of pipeline step to a list of results, this makes for loops also work
+    #   - Only state that gets saved / loaded are config, context vars, dependencies
+
+    # CHECKPOINT
+    # if none: find latest in relative folder (if it exists)
+    # if not none, find the checkpoint or throw
+
+    # 1. Check dependencies in pipeline run functions
+    # 2. Check dependencies of dependencies
+    # 3. Run pipeline
+    # 3a. If run with checkpoint, skip initializers
+    pass
+
+
+def create_checkpoint(name: str) -> None:
+    """Creates a checkpoint from restorable dependencies, config and context vars"""
+    # Maybe auto create checkpoints when changes are detected?
+    # But how?
+    # What changes?
+    # - After each step compare state dicts? May be expensive
+    # - Cannot capture all set_attrs because attr may be a reference with mutable data.
+    pass
+
+
+class Stateful(Protocol):
+    def state_dict(self) -> dict[str, Any]: ...
+    def load_state_dict(self, state_dict: dict[str, Any]) -> None: ...
 
 
 class PipelineRunner:
@@ -35,11 +63,10 @@ class PipelineRunner:
 
     def __init__(
         self,
-        container: Container | None = None,
         config: dict[str, Any] | None = None,
         logger: Logger | None = None,
     ):
-        self.dependencies = DependencyManager(container, config)
+        self.dependencies = DependencyManager(config)
         self.dependencies.register_singleton(self)
         if Logger not in self.dependencies:
             self.dependencies.register(_pipeline_step_logger_factory)

@@ -1,7 +1,6 @@
 from typing import Protocol
 
 import pytest
-from dependency_injector import containers, providers
 
 from lepel import DependencyManager
 
@@ -123,20 +122,6 @@ def test_inject_by_subclass():
     assert svc.value == 'ok'
 
 
-def test_inject_by_type_with_provider():
-    dm = DependencyManager()
-    dm.register(providers.Factory(Service, value='ok'))
-
-    def fn(svc: Service):
-        return svc
-
-    kwargs = dm.prepare_injection(fn)
-    assert 'svc' in kwargs
-    svc = kwargs['svc']
-    assert isinstance(svc, Service)
-    assert svc.value == 'ok'
-
-
 def test_inject_by_generic_type():
     class GenericService[T]:
         def __init__(self, foo: T) -> None:
@@ -195,7 +180,7 @@ def test_inject_by_type_nested_dependency():
         return svc
 
     dm.register(WrapperService)
-    dm.register(providers.Factory(Service, value='ok'))
+    dm.register(lambda: Service('ok'), Service)
 
     kwargs = dm.prepare_injection(fn)
     assert 'svc' in kwargs
@@ -204,45 +189,8 @@ def test_inject_by_type_nested_dependency():
     assert svc.svc.value == 'ok'
 
 
-def test_inject_by_type_from_user_declarative_container():
-    class UserContainer(containers.DeclarativeContainer):
-        bar = providers.Factory(Service, value='ok')
-
-    dm = DependencyManager(container=UserContainer())
-
-    def fn(foo: Service):  # type: ignore
-        return foo  # type: ignore
-
-    kwargs = dm.prepare_injection(fn)  # type: ignore
-    obj = kwargs['foo']
-    assert isinstance(obj, Service)
-    assert obj.value == 'ok'
-
-
-def test_inject_by_type_from_user_dynamic_container():
-    container = containers.DynamicContainer()
-    container.svc = providers.Factory(Service, value='ok')
-    dm = DependencyManager(container=container)
-
-    def fn(foo: Service):  # type: ignore
-        return foo  # type: ignore
-
-    kwargs = dm.prepare_injection(fn)  # type: ignore
-    obj = kwargs['foo']
-    assert isinstance(obj, Service)
-    assert obj.value == 'ok'
-
-
 def test_resolution_precedence():
-    container = containers.DynamicContainer()
-    container.foo = providers.Factory(Service, value='ok')
-    dm = DependencyManager(container=container, config={'foo': 'from-config'})
-
-    def fn(foo: Service):  # type: ignore
-        return foo  # type: ignore
-
-    kwargs = dm.prepare_injection(fn)  # type: ignore
-    assert isinstance(kwargs['foo'], Service)
+    dm = DependencyManager(config={'foo': 'from-config'})
 
     def fn(foo):  # type: ignore
         return foo  # type: ignore
@@ -255,3 +203,30 @@ def test_resolution_precedence():
 
     kwargs = dm.prepare_injection(fn)  # type: ignore
     assert kwargs['foo'] == 'from-context'
+
+    def fn(foo: Service):  # type: ignore
+        return foo  # type: ignore
+
+    dm.register(lambda: Service('ok'), Service)
+    kwargs = dm.prepare_injection(fn)  # type: ignore
+    assert isinstance(kwargs['foo'], Service)
+
+
+try:
+    from dependency_injector import providers
+
+    def test_inject_by_type_with_provider():
+        dm = DependencyManager()
+        dm.register(providers.Factory(Service, value='ok'))
+
+        def fn(svc: Service):
+            return svc
+
+        kwargs = dm.prepare_injection(fn)
+        assert 'svc' in kwargs
+        svc = kwargs['svc']
+        assert isinstance(svc, Service)
+        assert svc.value == 'ok'
+
+except ImportError:
+    pass

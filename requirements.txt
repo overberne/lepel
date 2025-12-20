@@ -1,5 +1,4 @@
 # Editable install with no version control (lepel==0.0.0)
 -e d:\documents\projects\lepel
-dependency_injector==4.48.3
 pytest==9.0.2
 pyyaml==6.0.3

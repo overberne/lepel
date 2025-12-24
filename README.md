@@ -54,7 +54,7 @@ if __name__ == '__main__':
 - `lepel.run_pipeline(...)` — runs a pipeline callable with config, DI and checkpoint support.
 - `lepel.default_argparser()` and `lepel.cli_args_to_config()` — small CLI helpers.
 
-## Notes
+### Notes
 
 - Checkpoint files are pickled with `cloudpickle` — ensure compatibility when loading across Python/package versions.
 - Config override files named `config_override.*` are supported and merged with CLI overrides.

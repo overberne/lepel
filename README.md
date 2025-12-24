@@ -7,7 +7,7 @@ Minimal utilities to author, run and resume single-machine experiment pipelines.
 - Install from source for development:
 
 ```bash
-pip install -e .
+pip install git+https://github.com/overberne/lepel
 ```
 
 ## Concepts

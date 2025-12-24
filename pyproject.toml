@@ -5,9 +5,35 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "lepel"
 version = "0.0.0"
-description = "Small machine LEarning PiplinE Library."
+description = "Minimal utilities to author, run and resume single-machine experiment pipelines."
 readme = "README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.13"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+    "License :: MIT License",
+]
+authors = [{ name = "Onno Verberne" }]
+license-files = ["LICENSE"]
+keywords = [
+    "Reinforcement Learning",
+    "Machine Learning",
+    "Experiments",
+    "Pipeline",
+]
+dependencies = [
+    'cloudpickle ~=3.1',
+    'pytest ~=9',
+    'pyyaml ~=6',
+    'toml ~=0.10',
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.pyright]
+typeCheckingMode = "strict"
+
+[tool.black]
+line-length = 100
+skip-string-normalization = true

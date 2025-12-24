@@ -45,6 +45,7 @@ if __name__ == '__main__':
 ### Configuration
 
 - `lepel.config.load_config(path)` / `save_config(mapping, path)` support `.yaml/.yml`, `.json` and `.toml` (requires PyYAML and toml as needed).
+- Config override files named `config_override.*` are supported and merged with CLI overrides.
 
 ### API Reference (core symbols)
 
@@ -57,4 +58,3 @@ if __name__ == '__main__':
 ### Notes
 
 - Checkpoint files are pickled with `cloudpickle` — ensure compatibility when loading across Python/package versions.
-- Config override files named `config_override.*` are supported and merged with CLI overrides.

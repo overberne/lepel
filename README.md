@@ -37,16 +37,16 @@ if __name__ == '__main__':
     run_pipeline(pipeline, output_dir='output', config_file='config.yaml')
 ```
 
-## CLI helpers
+### CLI helpers
 
 - `default_argparser()` provides a standard argparse ArgumentParser with `--output-dir`, `--config` and `--checkpoint`.
 - `cli_args_to_config(args: list[str])` converts `--key=value` or `--key value` style args into a dict with typed values (ints, floats, booleans).
 
-## Configuration
+### Configuration
 
 - `lepel.config.load_config(path)` / `save_config(mapping, path)` support `.yaml/.yml`, `.json` and `.toml` (requires PyYAML and toml as needed).
 
-## API Reference (core symbols)
+### API Reference (core symbols)
 
 - `lepel.DependencyManager` — register factories (`register`), register singletons (`register_singleton`), resolve dependencies (`resolve`), update context (`update_context_variables`) and persist state (`state_dict` / `load_state_dict`).
 - `lepel.PipelineStep` — base class for steps; implement `run`.

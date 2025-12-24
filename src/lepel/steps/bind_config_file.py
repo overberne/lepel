@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 from typing import Mapping
 
-from lepel.config import bind_config_values, config_setting
+from lepel.config_ import bind_config_values, config_setting
 from lepel import PipelineStep, DependencyManager
 
 try:

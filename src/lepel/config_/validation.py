@@ -1,7 +1,7 @@
 from typing import Any, Mapping
 from types import MappingProxyType
 
-from lepel.config.registry import all_registered
+from lepel.config_.registry import all_registered
 
 _CONFIG_CONTEXT: dict[str, Any] = {}
 
@@ -92,7 +92,7 @@ def resolve_config_value(
 
     if collection_name:
         try:
-            flat_key = f"{collection_name}.{key}"
+            flat_key = f'{collection_name}.{key}'
             return resolve_config_value(config=config, key=flat_key)
         except KeyError:
             pass
@@ -161,4 +161,4 @@ def ensure_required_config_values(config: Mapping[str, Any] | None = None) -> No
             )
 
     if errors:
-        raise ConfigValidationError("Configuration validation failed:\n" + "\n".join(errors))
+        raise ConfigValidationError('Configuration validation failed:\n' + '\n'.join(errors))

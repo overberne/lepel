@@ -2,8 +2,8 @@ from functools import wraps
 from typing import Any, Callable, overload, get_type_hints
 import warnings
 
-from lepel.config.registry import ConfigProperty, register
-from lepel.config.validation import resolve_config_value
+from lepel.config_.registry import ConfigProperty, register
+from lepel.config_.validation import resolve_config_value
 
 
 class TypedProperty[T, Owner](property):
@@ -21,37 +21,37 @@ class TypedProperty[T, Owner](property):
 
     # Descriptor protocol
     @overload
-    def __get__(self, instance: None, owner: type[Owner]) -> "TypedProperty[T, Owner]": ...
+    def __get__(self, instance: None, owner: type[Owner]) -> 'TypedProperty[T, Owner]': ...
     @overload
     def __get__(self, instance: Owner, owner: type[Owner] | None = None) -> T: ...
 
     def __get__(
         self, instance: Owner | None, owner: type[Owner] | None = None
-    ) -> T | "TypedProperty[T, Owner]":
+    ) -> T | 'TypedProperty[T, Owner]':
         if instance is None:
             return self
         return self._fget(instance)
 
     def __set__(self, instance: Owner, value: T) -> None:
         if self._fset is None:
-            raise AttributeError("can't set attribute")
+            raise AttributeError('can\'t set attribute')
         self._fset(instance, value)
 
     def __delete__(self, instance: Owner) -> None:
         if self._fdel is None:
-            raise AttributeError("can't delete attribute")
+            raise AttributeError('can\'t delete attribute')
         self._fdel(instance)
 
     # Fluent decorators
-    def getter(self, fget: Callable[[Owner], T]) -> "TypedProperty[T, Owner]":
+    def getter(self, fget: Callable[[Owner], T]) -> 'TypedProperty[T, Owner]':
         return TypedProperty(fget, self._fset, self._fdel, self.__doc__)
 
-    def setter(self, fset: Callable[[Owner, T], None]) -> "TypedProperty[T, Owner]":
-        """Return a new ``TypedProperty`` with the provided setter."""
+    def setter(self, fset: Callable[[Owner, T], None]) -> 'TypedProperty[T, Owner]':
+        '''Return a new ``TypedProperty`` with the provided setter.'''
 
         return TypedProperty(self._fget, fset, self._fdel, self.__doc__)
 
-    def deleter(self, fdel: Callable[[Owner], None]) -> "TypedProperty[T, Owner]":
+    def deleter(self, fdel: Callable[[Owner], None]) -> 'TypedProperty[T, Owner]':
         return TypedProperty(self._fget, self._fset, fdel, self.__doc__)
 
 
@@ -68,7 +68,7 @@ def config_setting[T](name: Callable[..., T]) -> Property[T]: ...
 def config_setting[T](
     name: str | Callable[..., T] | None = None,
 ) -> Callable[[Callable[..., T]], Property[T]] | Property[T]:
-    """Decorator for configuration-backed properties.
+    '''Decorator for configuration-backed properties.
 
     Resolution is string-based and relies only on class names.
 
@@ -90,12 +90,12 @@ def config_setting[T](
         _description_
     RuntimeError
         _description_
-    """
+    '''
 
     explicit_name = None if callable(name) else name
 
     def decorator(func: Callable[..., T]) -> Property[T]:
-        qual_parts = func.__qualname__.split(".")
+        qual_parts = func.__qualname__.split('.')
         if len(qual_parts) >= 2:
             class_name: str = qual_parts[-2]
         else:

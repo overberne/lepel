@@ -2,8 +2,8 @@ from typing import Any
 
 import pytest
 
-from lepel.config.registry import ConfigProperty, register
-from lepel.config.validation import (
+from lepel.config_.registry import ConfigProperty, register
+from lepel.config_.validation import (
     ConfigValidationError,
     resolve_config_value,
     ensure_required_config_values,

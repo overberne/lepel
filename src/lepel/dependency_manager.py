@@ -1,30 +1,57 @@
 # pyright: reportPrivateUsage=false
 import inspect
-from typing import Any, Callable, Type, get_type_hints, overload
+from typing import (
+    Any,
+    Callable,
+    OrderedDict,
+    Protocol,
+    Type,
+    cast,
+    get_type_hints,
+    overload,
+    runtime_checkable,
+)
 
-from dependency_injector import providers
+# Denotes whether a factory houses a singleton
+_SINGLETON_ATTR = '__is_singleton__'
+_ORIGINAL_FACTORY_ATTR = '__original_factory__'
+
+
+@runtime_checkable
+class Stateful(Protocol):
+    def state_dict(self) -> dict[str, Any]: ...
+    def load_state_dict(self, state_dict: dict[str, Any]) -> None: ...
 
 
 class DependencyManager:
     """Dependency manager. Injects based on type and name in function signatures.
     Supports `dependency_injector.providers` as factory methods.
+
+
+    Dependency resolution order:
+    1. Type
+    2. Context variables, by name (and type if annotated)
+    3. Config, by name (and type if annotated)
+
+    When resolving configuration values, will also look for:
+    - `config[f'{method_class.__name__}.{dependency}']`
+    - `config[method_class.__name__][dependency]`
     """
 
     _context_vars: dict[str, Any]
     _config: dict[str, Any]
-    type_providers: dict[type, Callable[..., Any]]
+    type_providers: OrderedDict[type, Callable[..., Any]]
 
     def __init__(
         self,
         config: dict[str, Any] | None = None,
     ) -> None:
         self._config = config or {}
-        self._context_vars = {'config': self._config}
-        self._type_providers: dict[type, Callable[..., Any]] = {}
+        self._context_vars = {}
+        self._type_providers: OrderedDict[type, Callable[..., Any]] = OrderedDict()
 
         self.register_singleton(self)
 
-    # def __contains__(self, dependency: str | Type[Any] | None) -> bool:
     def __contains__(self, dependency: Any) -> bool:
         if dependency is None:
             return False
@@ -41,58 +68,70 @@ class DependencyManager:
     def update_context_variables(self, **kwargs: Any) -> None:
         self._context_vars.update(kwargs)
 
-    def prepare_injection(self, method: Callable[..., Any]) -> dict[str, Any]:
+    def prepare_injection(self, method: Callable[..., Any] | Type[Any]) -> dict[str, Any]:
         """Get injectable function arguments from container and config"""
-        if isinstance(method, providers.Provider):
-            return {}
+        if isinstance(method, type):
+            method = method.__init__
 
         sig = inspect.signature(method)
-        hints = get_type_hints(method)
+        try:
+            hints = get_type_hints(method)
+        except (TypeError, ValueError):
+            hints = {}
+
+        method_class = None
+        if hasattr(method, '__self__'):
+            method_class = method.__self__.__class__  # pyright: ignore[reportFunctionMemberAccess]
 
         kwargs: dict[str, Any] = {}
-        for name, _ in sig.parameters.items():
-            if name == "self":
+        for name, param in sig.parameters.items():
+            if (
+                name == 'self'
+                or param.kind == param.VAR_POSITIONAL  # *args
+                or param.kind == param.VAR_KEYWORD  # **kwargs
+            ):
                 continue
 
             annotation = hints.get(name, inspect._empty)
-            kwargs[name] = self.resolve(name, annotation)
+            kwargs[name] = self.resolve(name, annotation, method_class=method_class)  # type: ignore
 
         return kwargs
 
-    def wire_class[T](self, class_: Type[T]) -> Callable[[], T]:
-        sig = inspect.signature(class_.__init__)
-        if len(sig.parameters) == 1:
-            return class_
+    def wire[T](self, factory: Callable[..., T] | Type[T]) -> Callable[[], T]:
+        if isinstance(factory, type):
+            factory = cast(Type[T], factory)
+            sig = inspect.signature(factory.__init__)
+            if len(sig.parameters) == 1:
+                setattr(factory, _ORIGINAL_FACTORY_ATTR, factory.__init__)
+                return factory
+        else:
+            sig = inspect.signature(factory)
+            if len(sig.parameters) == 0:
+                setattr(factory, _ORIGINAL_FACTORY_ATTR, factory)
+                return factory
 
-        def _wired_class() -> T:
-            return class_(**self.prepare_injection(class_.__init__))
-
-        return _wired_class
-
-    def wire_factory[T](self, factory: Callable[..., T]) -> Callable[[], T]:
-        sig = inspect.signature(factory)
-        if len(sig.parameters) == 0:
-            return factory
-
-        def _wired_factory() -> T:
+        def wired_factory() -> T:
             return factory(**self.prepare_injection(factory))
 
-        return _wired_factory
+        setattr(wired_factory, _ORIGINAL_FACTORY_ATTR, factory)
+        return wired_factory
 
     @overload
-    def register[T](self, factory: Callable[..., T], *, allow_override: bool = False) -> None:
+    def register[T](
+        self, factory: Callable[..., T] | Type[Any], *, allow_override: bool = False
+    ) -> None:
         """Register a dependency in the container. Any arguments in the factory
         function will be injected by the dependency manager.
 
-        NOTE: Factories which return a generic class should explicitly annotate
-        their return type (e.g., lambdas), or pass it through the `service_class` argument.
+        NOTE: Factories which return without type annotations (e.g., labmdas)
+        should pass their type through the `service_class` argument.
 
         NOTE: If the factory contains unresolvable arguments, the dependency
         manager will raise an error on resolution.
 
         Parameters
         ----------
-        factory : Callable[..., T]
+        factory : Callable[..., T] | Type[Any]
             Factory function for the dependency.
         allow_override : bool
             When false, raises a RuntimeError when overriding a registered type,
@@ -107,7 +146,7 @@ class DependencyManager:
     @overload
     def register[T](
         self,
-        factory: Callable[..., Any],
+        factory: Callable[..., Any] | Type[Any],
         service_class: Type[T],
         *,
         allow_override: bool = False,
@@ -121,7 +160,7 @@ class DependencyManager:
 
         Parameters
         ----------
-        factory : Callable[..., T]
+        factory : Callable[..., T] | Type[Any]
             Factory function for the dependency.
         service_class : Type[Any]
             The alias under which to register the dependency.
@@ -138,7 +177,7 @@ class DependencyManager:
 
     def register[T](
         self,
-        factory: Callable[..., Any],
+        factory: Callable[..., Any] | Type[Any],
         service_class: Type[T] | None = None,
         *,
         allow_override: bool = False,
@@ -161,10 +200,7 @@ class DependencyManager:
                 f'Dependency with type "{service_class.__name__}" already registered.'
             )
 
-        if isinstance(factory, type):
-            self._type_providers[service_class] = self.wire_class(factory)
-        else:
-            self._type_providers[service_class] = self.wire_factory(factory)
+        self._type_providers[service_class] = self.wire(factory)
 
     @overload
     def register_singleton(self, instance: Any, *, allow_override: bool = False) -> None:
@@ -217,23 +253,28 @@ class DependencyManager:
 
     def register_singleton[T](
         self,
-        instance: Any,
+        instance: T,
         service_class: Type[T] | None = None,
         *,
         allow_override: bool = False,
     ) -> None:
-        def factory() -> T:
+        def factory():
             return instance
 
-        self.register(factory, service_class=service_class, allow_override=allow_override)  # type: ignore
+        setattr(factory, _SINGLETON_ATTR, True)
+        self.register(
+            factory,
+            service_class=service_class or instance.__class__,
+            allow_override=allow_override,
+        )
 
     @overload
     def resolve(self, dependency: str) -> Any:
         """Resolve a dependency by name.
 
         Resolution order:
-        1. Context variables
-        2. Config
+        1. Context variables (name only)
+        2. Config (name only)
 
         Parameters
         ----------
@@ -252,13 +293,47 @@ class DependencyManager:
         """
 
     @overload
-    def resolve[T](self, dependency: str, annotation: Type[T]) -> T:
+    def resolve(self, dependency: str, *, method_class: Type[Any]) -> Any:
+        """Resolve a dependency by name.
+
+        Resolution order:
+        1. Context variables (name only)
+        2. Config (name only)
+
+        When resolving configuration values, will also look for:
+        - `config[f'{method_class.__name__}.{dependency}']`
+        - `config[method_class.__name__][dependency]`
+
+        Parameters
+        ----------
+        dependency : str
+            The name of the dependency.
+        method_class: Type[Any] | None
+            the class owning the method, if dependency comes from a method signature.
+
+        Returns
+        -------
+        Any
+            The resolved value or raises LookupError if not found.
+
+        Raises
+        ------
+        LookupError
+            When the dependency is not found,
+        """
+
+    @overload
+    def resolve[T](
+        self,
+        dependency: str,
+        annotation: Type[T],
+    ) -> T:
         """Resolve a dependency by type and/or name.
 
         Resolution order:
         1. Container (type only)
-        1. Context variables
-        2. Config
+        2. Context variables
+        3. Config
 
         Parameters
         ----------
@@ -266,6 +341,45 @@ class DependencyManager:
             The name of the dependency.
         annotation : Type[T]
             The type of the dependency.
+
+        Returns
+        -------
+        T
+            The resolved value or raises LookupError if not found.
+
+        Raises
+        ------
+        LookupError
+            When the dependency is not found,
+        """
+
+    @overload
+    def resolve[T](
+        self,
+        dependency: str,
+        annotation: Type[T],
+        *,
+        method_class: Type[Any],
+    ) -> T:
+        """Resolve a dependency by type and/or name.
+
+        Resolution order:
+        1. Type
+        2. Context variables
+        3. Config
+
+        When resolving configuration values, will also look for:
+        - `config[f'{method_class.__name__}.{dependency}']`
+        - `config[method_class.__name__][dependency]`
+
+        Parameters
+        ----------
+        dependency : str
+            The name of the dependency.
+        annotation : Type[T]
+            The type of the dependency.
+        method_class: Type[Any] | None
+            the class owning the method, if dependency comes from a method signature.
 
         Returns
         -------
@@ -298,7 +412,13 @@ class DependencyManager:
             When the dependency is not found,
         """
 
-    def resolve(self, dependency: str | Type[Any], annotation: Type[Any] = inspect._empty) -> Any:
+    def resolve(
+        self,
+        dependency: str | Type[Any],
+        annotation: Type[Any] = inspect._empty,
+        *,
+        method_class: Type[Any] | None = None,
+    ) -> Any:
         # Resolve by type (annotation) from container
         if annotation and annotation is not inspect._empty:
             provider = self._type_providers.get(annotation)
@@ -306,20 +426,151 @@ class DependencyManager:
                 return provider()
 
         # Resolve by name
-        val: Any = None
-        if dependency in self._context_vars:
-            val = self._context_vars[dependency]
-        elif dependency in self._config:
-            val = self._config[dependency]
+        if isinstance(dependency, str):
+            val: Any = None
+            if dependency in self._context_vars:
+                val = self._context_vars[dependency]
+            else:
+                val = self._resolve_from_config(dependency, annotation, method_class)
 
-        if val and _same_types(val, annotation):
-            return val
+            if val is not None and _same_types(val, annotation):
+                return val
 
-        raise LookupError(f"Cannot resolve dependency for parameter '{dependency}'")
+        raise LookupError(f'Cannot resolve dependency for parameter "{dependency}"')
+
+    def throw_if_uninjectable(self, method: Callable[..., Any] | Type[Any]):
+        sig = inspect.signature(method)
+        try:
+            hints = get_type_hints(method)
+        except (TypeError, ValueError):
+            hints = {}
+
+        method_class = None
+        if hasattr(method, '__self__'):
+            method_class = method.__self__.__class__  # type: ignore
+
+        for name, param in sig.parameters.items():
+            if (
+                name == 'self'
+                or param.kind == param.VAR_POSITIONAL  # *args
+                or param.kind == param.VAR_KEYWORD  # **kwargs
+            ):
+                continue
+
+            annotation = hints.get(name, inspect._empty)
+            if not self._can_resolve(name, annotation, method_class):
+                name = f'{method.__name__}.{name}'
+                if method_class:
+                    name = f'{method_class}.{name}'
+                raise RuntimeError(f'Unable to resolve dependency "{name}"')
+
+    def validate_dependencies(self) -> None:
+        """Validates that all dependencies in factory signatures
+        are present in the dependency manager."""
+        for factory in self._transients.values():
+            orig_factory: Callable[..., Any] = getattr(factory, _ORIGINAL_FACTORY_ATTR)
+            self.throw_if_uninjectable(orig_factory)
+
+    def state_dict(self) -> dict[str, Any]:
+        # Only for singletons, can be a list because _type_providers is ordered.
+        state_dicts: list[dict[str, Any]] = [
+            instance.state_dict()
+            for cls, instance in self._singletons.items()
+            if issubclass(cls, Stateful) and cls is not DependencyManager
+        ]
+        return {
+            'state_dicts': state_dicts,
+            'config': self._config,
+            'context_variables': self._context_vars,
+        }
+
+    def load_state_dict(self, state_dict: dict[str, Any]) -> None:
+        # Only for singletons, can be a list because _type_providers is ordered.
+        stateful_singletons: list[Stateful] = [
+            instance
+            for cls, instance in self._singletons.items()
+            if issubclass(cls, Stateful) and cls is not DependencyManager
+        ]
+        # Can zip because singletons are an ordered dict
+        for instance, dict_ in zip(stateful_singletons, state_dict.get('state_dicts', [])):
+            instance.load_state_dict(dict_)
+
+        self._config = state_dict.get('config', {})
+        self._context_vars = state_dict.get('context_variables', {})
+
+    def _resolve_from_config(
+        self,
+        dependency: str,
+        annotation: Type[Any] | None,
+        method_class: Type[Any] | None,
+    ) -> Any | None:
+        # Resolve nested values first, giving preference to the true class over the alias (annotation)
+        if method_class:
+            class_name = method_class.__name__
+            flat_name = f'{class_name}.{dependency}'
+            if flat_name in self._config:
+                return self._config[flat_name]
+            elif class_name in self._config and dependency in self._config[class_name]:
+                return self._config[class_name][dependency]
+
+        if annotation:
+            class_name = annotation.__name__
+            flat_name = f'{class_name}.{dependency}'
+            if flat_name in self._config:
+                return self._config[flat_name]
+            elif class_name in self._config and dependency in self._config[class_name]:
+                return self._config[class_name][dependency]
+
+        if dependency in self._config:
+            return self._config[dependency]
+
+        return None
+
+    def _can_resolve(
+        self,
+        dependency: str | Type[Any],
+        annotation: Type[Any] = inspect._empty,
+        method_class: Type[Any] | None = None,
+    ) -> bool:
+        # Resolve by type (annotation) from container
+        if annotation and annotation is not inspect._empty:
+            provider = self._type_providers.get(annotation)
+            if provider is not None:
+                return True
+
+        # Resolve by name
+        if isinstance(dependency, str):
+            val: Any = None
+            if dependency in self._context_vars:
+                val = self._context_vars[dependency]
+            else:
+                val = self._resolve_from_config(dependency, annotation, method_class)
+
+            return val is not None and _same_types(val, annotation)
+
+        return False
+
+    @property
+    def _singletons(self) -> dict[Type[Any], Any]:
+        singletons: OrderedDict[Type[Any], Any] = OrderedDict()
+
+        for cls, factory in self._type_providers.items():
+            if hasattr(factory, _SINGLETON_ATTR):
+                singletons[cls] = factory()
+
+        return singletons
+
+    @property
+    def _transients(self) -> dict[Type[Any], Callable[..., Any]]:
+        return {
+            cls: factory
+            for cls, factory in self._type_providers.items()
+            if not hasattr(factory, _SINGLETON_ATTR)
+        }
 
 
 def _same_types(a: Any, b: Type[Any]) -> bool:
-    return b is inspect._empty or type(a) == b
+    return b is inspect._empty or type(a) == b or issubclass(a.__class__, b)
 
 
 def _try_third_party_di_type(factory: Callable[..., Any]) -> Type[Any] | None:
@@ -332,7 +583,7 @@ def _try_third_party_di_type(factory: Callable[..., Any]) -> Type[Any] | None:
 
 def _get_dependency_injector_provider_type(provider: Callable[..., Any]) -> Type[Any] | None:
     """For the `dependency-injector` library."""
-    provides = getattr(provider, "provides", None)
+    provides = getattr(provider, 'provides', None)
 
     if provides is not None:
         # Case: providers.Object(instance)

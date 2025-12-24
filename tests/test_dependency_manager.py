@@ -1,4 +1,4 @@
-from typing import Protocol
+from typing import Any, Protocol
 
 import pytest
 
@@ -71,7 +71,15 @@ def test_inject_from_context_variables():
 
 
 def test_inject_from_config():
-    dm = DependencyManager(config={'foo': 42})
+    dm = DependencyManager(
+        config={
+            'foo': 42,
+            'baz': 0,
+            'Bar': {'baz': 1},
+            'Baz': {'baz': 2},
+            'Baz.baz': 3,
+        }
+    )
 
     def fn(foo):  # type: ignore
         return foo  # type: ignore
@@ -79,10 +87,40 @@ def test_inject_from_config():
     kwargs = dm.prepare_injection(fn)  # type: ignore
     assert kwargs['foo'] == 42
 
+    class Bar:
+        def foo(self, baz: int) -> int:
+            return baz
+
+    bar = Bar()
+    kwargs = dm.prepare_injection(bar.foo)
+    assert kwargs['baz'] == 1
+
+    class Baz:
+        def foo(self, baz: int) -> int:
+            return baz
+
+    baz = Baz()
+    kwargs = dm.prepare_injection(baz.foo)
+    assert kwargs['baz'] == 3
+
 
 def test_inject_by_type():
     dm = DependencyManager()
     dm.register(lambda: Service(value='ok'), service_class=Service)
+
+    def fn(svc: Service):
+        return svc
+
+    kwargs = dm.prepare_injection(fn)
+    assert 'svc' in kwargs
+    svc = kwargs['svc']
+    assert isinstance(svc, Service)
+    assert svc.value == 'ok'
+
+
+def test_inject_by_type_with_class_register():
+    dm = DependencyManager(config={'value': 'ok'})
+    dm.register(Service)
 
     def fn(svc: Service):
         return svc
@@ -210,6 +248,35 @@ def test_resolution_precedence():
     dm.register(lambda: Service('ok'), Service)
     kwargs = dm.prepare_injection(fn)  # type: ignore
     assert isinstance(kwargs['foo'], Service)
+
+
+def test_statefulness():
+    class StatefulService:
+        def __init__(self, foo: int):
+            self.foo = foo
+
+        def state_dict(self) -> dict[str, Any]:
+            return {'foo': self.foo}
+
+        def load_state_dict(self, state_dict: dict[str, Any]) -> None:
+            self.foo = state_dict['foo']
+
+    dm = DependencyManager({'bar': 'baz'})
+    dm.register_singleton(StatefulService(0))
+    dm.update_context_variables(baz=False)
+
+    def foo(service: StatefulService, bar: str, baz: bool):
+        return service, bar, baz
+
+    state_dict = dm.state_dict()
+    dm_assert = DependencyManager()
+    dm_assert.register_singleton(StatefulService(1))
+    dm_assert.load_state_dict(state_dict)
+
+    service, bar, baz = foo(**dm_assert.prepare_injection(foo))
+    assert service.foo == 0
+    assert bar == 'baz'
+    assert baz == False
 
 
 try:

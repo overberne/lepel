@@ -1,8 +1,8 @@
 import pytest
 
-from lepel.config.decorator import config_setting
-from lepel.config.validation import bind_config_values
-from lepel.config.registry import all_registered
+from lepel.config_.decorator import config_setting
+from lepel.config_.validation import bind_config_values
+from lepel.config_.registry import all_registered
 
 
 def test_decorator_registers_property_and_requires_return_annotation():

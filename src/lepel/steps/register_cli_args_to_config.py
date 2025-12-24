@@ -1,7 +1,7 @@
 import sys
 from typing import Any
 
-from lepel.config import bind_config_values
+from lepel.config_ import bind_config_values
 from lepel import PipelineStep
 
 

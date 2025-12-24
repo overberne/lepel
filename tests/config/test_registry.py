@@ -1,4 +1,4 @@
-from lepel.config.registry import (
+from lepel.config_.registry import (
     ConfigProperty,
     _REGISTRY,  # pyright: ignore[reportPrivateUsage]
     register,

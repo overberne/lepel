@@ -1,7 +1,7 @@
 import sys
 
 from lepel.steps import RegisterCliArgsToConfig
-from lepel.config import get_config
+from lepel.config_ import get_config
 
 
 def test_register_cli_args():

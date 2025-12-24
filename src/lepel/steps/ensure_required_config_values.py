@@ -1,4 +1,4 @@
-from lepel.config import ensure_required_config_values
+from lepel.config_ import ensure_required_config_values
 from lepel import PipelineStep
 
 

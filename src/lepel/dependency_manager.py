@@ -12,6 +12,8 @@ from typing import (
     runtime_checkable,
 )
 
+from lepel.context import Context
+
 # Denotes whether a factory houses a singleton
 _SINGLETON_ATTR = '__is_singleton__'
 _ORIGINAL_FACTORY_ATTR = '__original_factory__'
@@ -38,7 +40,7 @@ class DependencyManager:
     - `config[method_class.__name__][dependency]`
     """
 
-    _context_vars: dict[str, Any]
+    _context: Context
     _config: dict[str, Any]
     type_providers: OrderedDict[type, Callable[..., Any]]
 
@@ -47,10 +49,11 @@ class DependencyManager:
         config: dict[str, Any] | None = None,
     ) -> None:
         self._config = config or {}
-        self._context_vars = {}
+        self._context = Context()
         self._type_providers: OrderedDict[type, Callable[..., Any]] = OrderedDict()
 
         self.register_singleton(self)
+        self.register_singleton(self._context)
 
     def __contains__(self, dependency: Any) -> bool:
         if dependency is None:
@@ -58,15 +61,17 @@ class DependencyManager:
 
         # Name based resolution
         if isinstance(dependency, str):
-            return dependency in self._config or dependency in self._context_vars
+            return dependency in self._config or dependency in self._context
 
         return dependency in self._type_providers
 
     def clear_context_variables(self) -> None:
-        self._context_vars = {}
+        self._context = Context()
+        self.register_singleton(self._context, allow_override=True)
 
     def update_context_variables(self, **kwargs: Any) -> None:
-        self._context_vars.update(kwargs)
+        for key, value in kwargs.items():
+            self._context[key] = value
 
     def prepare_injection(self, method: Callable[..., Any] | Type[Any]) -> dict[str, Any]:
         """Get injectable function arguments from container and config"""
@@ -458,8 +463,8 @@ class DependencyManager:
         # Resolve by name
         if isinstance(dependency, str):
             val: Any = None
-            if dependency in self._context_vars:
-                val = self._context_vars[dependency]
+            if dependency in self._context:
+                val = self._context[dependency]
             else:
                 val = self._resolve_from_config(dependency, annotation, method_class)
 
@@ -515,7 +520,7 @@ class DependencyManager:
         return {
             'state_dicts': state_dicts,
             'config': self._config,
-            'context_variables': self._context_vars,
+            'context': self._context._dict,
         }
 
     def load_state_dict(self, state_dict: dict[str, Any]) -> None:
@@ -530,7 +535,8 @@ class DependencyManager:
             instance.load_state_dict(dict_)
 
         self._config = state_dict.get('config', {})
-        self._context_vars = state_dict.get('context_variables', {})
+        self._context = Context(state_dict.get('context', {}))
+        self.register_singleton(self._context, allow_override=True)
 
     def _resolve_from_config(
         self,
@@ -575,14 +581,18 @@ class DependencyManager:
         # Resolve by name
         if isinstance(dependency, str):
             val: Any = None
-            if dependency in self._context_vars:
-                val = self._context_vars[dependency]
+            if dependency in self._context:
+                val = self._context[dependency]
             else:
                 val = self._resolve_from_config(dependency, annotation, method_class)
 
             return val is not None and _same_types(val, annotation)
 
         return False
+
+    @property
+    def context(self) -> Context:
+        return self._context
 
     @property
     def _singletons(self) -> dict[Type[Any], Any]:

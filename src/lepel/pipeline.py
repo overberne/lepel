@@ -169,10 +169,8 @@ def run_pipeline(
         dependencies._config.update(config)
     else:
         dependencies = DependencyManager(config)
-    dependencies.update_context_variables(
-        output_dir=output_dir,
-        pipeline_name=_get_pipeline_name(),
-    )
+    dependencies.context.output_dir = output_dir
+    dependencies.context.pipeline_name = _get_pipeline_name()
 
     checkpoint_reached = True
     checkpoint_file = None
@@ -187,7 +185,7 @@ def run_pipeline(
         logger.info('Checkpoint "%s" found', checkpoint_name)
 
     results: list[Any] = []
-    dependencies.update_context_variables(__results__=results)
+    dependencies.context.__results__ = results
     dependencies_validated = False
     current_step = 0
 
@@ -204,7 +202,7 @@ def run_pipeline(
                 _validate_dependencies(dependencies)
                 if checkpoint_data:
                     dependencies.load_state_dict(checkpoint_data['state_dict'])
-                    results = dependencies._context_vars['__results__']
+                    results = dependencies.context.__results__
 
             if isinstance(self, Checkpoint):
                 if self.name == checkpoint_name:
@@ -217,7 +215,7 @@ def run_pipeline(
             current_step += 1
             if checkpoint_reached:
                 step_name = self.__class__.__name__
-                dependencies.update_context_variables(pipeline_step=step_name)
+                dependencies.context.pipeline_step = step_name
 
                 logger.info('Starting pipeline step %d: %s', current_step, step_name)
                 result = self.run(**dependencies.prepare_injection(self.run))

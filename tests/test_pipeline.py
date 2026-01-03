@@ -2,7 +2,7 @@ import os
 from pathlib import Path
 from typing import Any, Protocol
 
-from lepel import Checkpoint, DependencyManager, PipelineStep, run_pipeline
+from lepel import DependencyManager, PipelineStep, checkpoint, run_pipeline, run_step
 
 
 class FooProtocol(Protocol):
@@ -62,11 +62,11 @@ def test_pipeline(tmp_path: Path):
         dependencies.register(TransientService)
         dependencies.register_singleton(singleton)
         # Pipeline
-        SetFirstStepIfNotSet('before-checkpoints')
-        Checkpoint('first')
-        SetFirstStepIfNotSet('inbetween-checkpoints')
-        Checkpoint('second')
-        SetFirstStepIfNotSet('after-checkpoints')
+        run_step(SetFirstStepIfNotSet('before-checkpoints'))
+        checkpoint('first')
+        run_step(SetFirstStepIfNotSet('inbetween-checkpoints'))
+        checkpoint('second')
+        run_step(SetFirstStepIfNotSet('after-checkpoints'))
 
     output_dir = tmp_path / 'output'
     output_dir.mkdir()

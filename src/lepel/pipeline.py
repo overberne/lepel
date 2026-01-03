@@ -8,7 +8,7 @@ from os import PathLike
 from pathlib import Path
 from typing import Any, Callable, Type
 
-from lepel.checkpoint import Checkpoint as Checkpoint_
+from lepel.checkpoint import Checkpoint as CheckpointData
 from lepel.checkpoint import load_checkpoint, save_checkpoint
 from lepel.config import load_config, save_config
 from lepel.dependency_manager import DependencyManager
@@ -19,7 +19,7 @@ _CONFIG_OVERRIDE_GLOB_PATTERNS = tuple(f'config_override{ext}' for ext in _CONFI
 _CHECKPOINTS_RELPATH = Path('checkpoints')
 
 
-class PipelineStep(ABC):
+class PipelineStep[T = None](ABC):
     """Abstract base class for pipeline steps.
 
     Subclasses should implement the ``run`` method. Pipeline steps are instantiated
@@ -27,8 +27,11 @@ class PipelineStep(ABC):
     orchestrate ordering, checkpoint handling, and dependency injection.
     """
 
+    def __run_step__(self) -> T:
+        raise NotImplementedError('This should be wrapped/replaced by the run_pipeline() function.')
+
     @abstractmethod
-    def run(self, *args: Any, **kwargs: Any) -> None:
+    def run(self, *args: Any, **kwargs: Any) -> T:
         """Execute the pipeline step.
 
         Implementations of this method perform the work for a single pipeline
@@ -68,7 +71,7 @@ class Checkpoint(PipelineStep):
         self.name = name
 
     def run(self, output_dir: Path, dependencies: DependencyManager) -> None:
-        checkpoint = Checkpoint_(name=self.name, state_dict=dependencies.state_dict())
+        checkpoint = CheckpointData(name=self.name, state_dict=dependencies.state_dict())
         save_checkpoint(checkpoint, output_dir / _CHECKPOINTS_RELPATH)
 
 
@@ -131,10 +134,6 @@ def run_pipeline(
         ``output_dir`` as ``config_override.*`` alongside the copied
         configuration file.
     """
-    current_step = 0
-    checkpoint_reached = True
-    checkpoint_name = None
-    checkpoint_data = None
     output_dir = Path(output_dir)
 
     if config_file:
@@ -169,6 +168,10 @@ def run_pipeline(
         dependencies = DependencyManager(config)
     dependencies.update_context_variables(output_dir=output_dir)
 
+    checkpoint_reached = True
+    checkpoint_file = None
+    checkpoint_name = None
+    checkpoint_data = None
     # Load checkpoint data, if any
     if checkpoint:
         checkpoint_file = _find_checkpoint_file(checkpoint)
@@ -177,36 +180,69 @@ def run_pipeline(
         checkpoint_reached = False
         logger.info('Checkpoint "%s" found', checkpoint_name)
 
-    def init_wrapper(init: Callable[..., Any]) -> Callable[..., Any]:
-        """Wraps the init functions of all imported PipelineStep implementations."""
+    results: list[Any] = []
+    dependencies.update_context_variables(__results__=results)
+    dependencies_validated = False
+    current_step = 0
 
-        def new_init(self: PipelineStep, *args: Any, **kwargs: Any):
-            # Allow the PipelineStep to init
-            init(self, *args, **kwargs)
+    def run_step_wrapper(original_run_step: Callable[..., Any]) -> Callable[..., Any]:
+        """Wraps the __run_step__ functions of all imported PipelineStep implementations."""
 
-            nonlocal checkpoint_reached, current_step
-            current_step += 1
+        def new_run_step(self: PipelineStep) -> Any:
+            nonlocal checkpoint_reached, current_step, dependencies_validated, results
+
             # Validate dependencies when running first step
             # user may have registered dependencies in the preamble of the pipeline
-            if current_step == 1:
+            if not dependencies_validated:
+                dependencies_validated = True
                 _validate_dependencies(dependencies)
                 if checkpoint_data:
                     dependencies.load_state_dict(checkpoint_data['state_dict'])
+                    results = dependencies._context_vars['__results__']
+
+            if isinstance(self, Checkpoint):
+                if self.name == checkpoint_name:
+                    checkpoint_reached = True
+                elif checkpoint_reached:
+                    logger.info('Creating checkpoint %s', self.name)
+                    self.run(**dependencies.prepare_injection(self.run))
+                return None
+
+            current_step += 1
             if checkpoint_reached:
                 step_name = self.__class__.__name__
                 dependencies.update_context_variables(pipeline_step=step_name)
+
                 logger.info('Starting pipeline step %d: %s', current_step, step_name)
-                self.run(**dependencies.prepare_injection(self.run))
+                result = self.run(**dependencies.prepare_injection(self.run))
                 logger.info('Finished pipeline step %d: %s', current_step, step_name)
-            elif isinstance(self, Checkpoint) and self.name == checkpoint_name:
-                checkpoint_reached = True
 
-        return new_init
+                results.append(result)
+                return result
+            else:
+                if current_step > len(results):
+                    raise RuntimeError(
+                        f'Checkpoint "{checkpoint_file}" did not contain enough stored results'
+                    )
+                return results[current_step - 1]
 
-    unwrap_pipeline_steps = _wrap_subclasses_init(PipelineStep, init_wrapper)
+        return new_run_step
+
+    # unwrap_pipeline_steps = _wrap_subclasses_init(PipelineStep, init_wrapper)
+    unwrap_pipeline_steps = _wrap_subclasses_method(PipelineStep, '__run_step__', run_step_wrapper)
     logger.info('Initiating pipeline...')
     pipeline(**dependencies.prepare_injection(pipeline))
+    logger.info('Pipeline finished!')
     unwrap_pipeline_steps()
+
+
+def run_step[T](step: PipelineStep[T]) -> T:
+    return step.__run_step__()
+
+
+def checkpoint(name: str) -> None:
+    """Alias for `run_step(Checkpoint(name))`"""
+    Checkpoint(name).__run_step__()
 
 
 def _find_config_file(dir_path: Path) -> Path | None:
@@ -298,19 +334,21 @@ def _all_subclasses[T](cls: Type[T]) -> list[Type[T]]:
     return list(result)
 
 
-def _wrap_subclasses_init(cls: Type[Any], init_wrapper: Callable[..., Any]) -> Callable[[], None]:
-    original_inits: dict[Type[Any], Callable[..., Any]] = {}
+def _wrap_subclasses_method(
+    cls: Type[Any], method_name: str, wrapper: Callable[..., Any]
+) -> Callable[[], None]:
+    original_methods: dict[Type[Any], Callable[..., Any]] = {}
 
     for cls in _all_subclasses(PipelineStep):
-        original_init = cls.__init__
-        original_inits[cls] = original_init
-        cls.__init__ = init_wrapper(original_init)
+        original_method = getattr(cls, method_name)
+        original_methods[cls] = original_method
+        setattr(cls, method_name, wrapper(original_method))
 
-    def set_original_inits() -> None:
-        for cls, init in original_inits.items():
-            cls.__init__ = init
+    def set_original_methods() -> None:
+        for cls, original_method in original_methods.items():
+            setattr(cls, method_name, original_method)
 
-    return set_original_inits
+    return set_original_methods
 
 
 def _validate_dependencies(dependencies: DependencyManager) -> None:

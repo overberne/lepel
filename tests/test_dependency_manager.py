@@ -42,7 +42,7 @@ def test_inject_name_mismatch_raises():
 
 def test_inject_type_mismatch_raises():
     dm = DependencyManager()
-    dm.update_context_variables(foo=123)
+    dm.context.foo = 123
 
     def fn(foo: str):
         return foo
@@ -53,7 +53,7 @@ def test_inject_type_mismatch_raises():
 
 def test_inject_from_context_variables():
     dm = DependencyManager()
-    dm.update_context_variables(foo=123)
+    dm.context.foo = 123
 
     def fn(foo):  # type: ignore
         return foo  # type: ignore
@@ -249,7 +249,7 @@ def test_resolution_precedence():
     assert kwargs['foo'] == 'from-config'
 
     # Context variable should override container and config
-    dm.update_context_variables(foo='from-context')
+    dm.context.foo = 'from-context'
 
     kwargs = dm.prepare_injection(fn)  # type: ignore
     assert kwargs['foo'] == 'from-context'
@@ -275,7 +275,7 @@ def test_statefulness():
 
     dm = DependencyManager({'bar': 'baz'})
     dm.register_singleton(StatefulService(0))
-    dm.update_context_variables(baz=False)
+    dm.context.baz = False
 
     def foo(service: StatefulService, bar: str, baz: bool):
         return service, bar, baz

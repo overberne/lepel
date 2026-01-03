@@ -65,14 +65,6 @@ class DependencyManager:
 
         return dependency in self._type_providers
 
-    def clear_context_variables(self) -> None:
-        self._context = Context()
-        self.register_singleton(self._context, allow_override=True)
-
-    def update_context_variables(self, **kwargs: Any) -> None:
-        for key, value in kwargs.items():
-            self._context[key] = value
-
     def prepare_injection(self, method: Callable[..., Any] | Type[Any]) -> dict[str, Any]:
         """Get injectable function arguments from container and config"""
         if isinstance(method, type):

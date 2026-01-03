@@ -93,7 +93,12 @@ class DependencyManager:
                 continue
 
             annotation = hints.get(name, inspect._empty)
-            kwargs[name] = self.resolve(name, annotation, method_class=method_class)  # type: ignore
+            kwargs[name] = self.resolve(
+                name,
+                annotation,
+                method_class=method_class,  # pyright: ignore[reportArgumentType]
+                default=param.default,
+            )
 
         return kwargs
 
@@ -269,7 +274,7 @@ class DependencyManager:
         )
 
     @overload
-    def resolve(self, dependency: str) -> Any:
+    def resolve(self, dependency: str, *, default: Any = inspect.Parameter.empty) -> Any:
         """Resolve a dependency by name.
 
         Resolution order:
@@ -280,6 +285,9 @@ class DependencyManager:
         ----------
         dependency : str
             The name of the dependency.
+        default : Any
+            A fallback value to use if the dependency is not found,
+            by default `inspect.Paramter.empty`
 
         Returns
         -------
@@ -293,7 +301,13 @@ class DependencyManager:
         """
 
     @overload
-    def resolve(self, dependency: str, *, method_class: Type[Any]) -> Any:
+    def resolve(
+        self,
+        dependency: str,
+        *,
+        method_class: Type[Any],
+        default: Any = inspect.Parameter.empty,
+    ) -> Any:
         """Resolve a dependency by name.
 
         Resolution order:
@@ -310,6 +324,9 @@ class DependencyManager:
             The name of the dependency.
         method_class: Type[Any] | None
             the class owning the method, if dependency comes from a method signature.
+        default : Any
+            A fallback value to use if the dependency is not found,
+            by default `inspect.Paramter.empty`
 
         Returns
         -------
@@ -327,6 +344,8 @@ class DependencyManager:
         self,
         dependency: str,
         annotation: Type[T],
+        *,
+        default: T = inspect.Parameter.empty,
     ) -> T:
         """Resolve a dependency by type and/or name.
 
@@ -341,6 +360,9 @@ class DependencyManager:
             The name of the dependency.
         annotation : Type[T]
             The type of the dependency.
+        default : T
+            A fallback value to use if the dependency is not found,
+            by default `inspect.Paramter.empty`
 
         Returns
         -------
@@ -360,6 +382,7 @@ class DependencyManager:
         annotation: Type[T],
         *,
         method_class: Type[Any],
+        default: T = inspect.Parameter.empty,
     ) -> T:
         """Resolve a dependency by type and/or name.
 
@@ -380,6 +403,9 @@ class DependencyManager:
             The type of the dependency.
         method_class: Type[Any] | None
             the class owning the method, if dependency comes from a method signature.
+        default : T
+            A fallback value to use if the dependency is not found,
+            by default `inspect.Paramter.empty`
 
         Returns
         -------
@@ -393,13 +419,16 @@ class DependencyManager:
         """
 
     @overload
-    def resolve[T](self, dependency: Type[T]) -> T:
+    def resolve[T](self, dependency: Type[T], *, default: T = inspect.Parameter.empty) -> T:
         """Resolve a dependency by type.
 
         Parameters
         ----------
         dependency : Type[T]
             The type of the dependency.
+        default : T
+            A fallback value to use if the dependency is not found,
+            by default `inspect.Paramter.empty`
 
         Returns
         -------
@@ -418,6 +447,7 @@ class DependencyManager:
         annotation: Type[Any] = inspect._empty,
         *,
         method_class: Type[Any] | None = None,
+        default: Any = inspect.Parameter.empty,
     ) -> Any:
         # Resolve by type (annotation) from container
         if annotation and annotation is not inspect._empty:
@@ -435,6 +465,9 @@ class DependencyManager:
 
             if val is not None and _same_types(val, annotation):
                 return val
+
+        if default != inspect.Parameter.empty:
+            return default
 
         raise LookupError(f'Cannot resolve dependency for parameter "{dependency}"')
 
@@ -454,6 +487,7 @@ class DependencyManager:
                 name == 'self'
                 or param.kind == param.VAR_POSITIONAL  # *args
                 or param.kind == param.VAR_KEYWORD  # **kwargs
+                or param.default is not inspect.Parameter.empty
             ):
                 continue
 

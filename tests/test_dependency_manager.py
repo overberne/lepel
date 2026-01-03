@@ -104,6 +104,18 @@ def test_inject_from_config():
     assert kwargs['baz'] == 3
 
 
+def test_inject_default():
+    dm = DependencyManager()
+
+    def fn(foo: str = 'bar'):
+        return foo
+
+    kwargs = dm.prepare_injection(fn)
+    assert 'foo' in kwargs
+    foo = kwargs['foo']
+    assert foo == 'bar'
+
+
 def test_inject_by_type():
     dm = DependencyManager()
     dm.register(lambda: Service(value='ok'), service_class=Service)

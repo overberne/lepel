@@ -259,7 +259,7 @@ def _copy_pipeline_file_to_output(output_dir: Path) -> None:
     src_path = Path(sys.argv[0])
     dst_path = output_dir / src_path.name
 
-    if src_path == dst_path:
+    if src_path == dst_path or src_path.name == 'pytest':
         return
 
     shutil.copy2(src_path, dst_path)

@@ -7,6 +7,7 @@ from logging import Logger, getLogger
 from os import PathLike
 from pathlib import Path
 from typing import Any, Callable, Type
+import sys
 
 from lepel.checkpoint import Checkpoint as CheckpointData
 from lepel.checkpoint import load_checkpoint, save_checkpoint
@@ -112,7 +113,7 @@ def run_pipeline(
         (including checkpoints) under it.
     config_file : str | PathLike[str] | Path | None, optional
         Path to a configuration file to load. If omitted, the runner will look
-        in the current working directory for a file named ``config.yaml``/
+        in the directory `sys.argv[0]` for a file named ``config.yaml``/
         ``config.yml``/``config.json``/``config.toml``. When provided, the
         configuration file will be copied into ``output_dir``.
     checkpoint : str | None, optional
@@ -135,6 +136,8 @@ def run_pipeline(
         configuration file.
     """
     output_dir = Path(output_dir)
+    output_dir.mkdir(exist_ok=True)
+    _copy_pipeline_file_to_output(output_dir)
 
     if config_file:
         config_file = Path(config_file)
@@ -142,11 +145,11 @@ def run_pipeline(
         config = load_config(config_file)
         logger.info('Configuration file loaded: %s', str(config_file))
     else:
-        # Look for a config file in the CWD
-        config_file = _find_config_file(Path('.'))
+        # Look for a config file in the directory of the pipeline file.
+        config_file = _find_config_file(Path(sys.argv[0]).parent)
         config: dict[str, Any] = load_config(config_file) if config_file else {}
         logger.info('Configuration file loaded: %s', str(config_file))
-        config_override_file = _find_config_override_file(Path('.'))
+        config_override_file = _find_config_override_file(Path(sys.argv[0]).parent)
         if config_file:
             _copy_config_file_to_output(output_dir, config_file)
         if config_override_file:
@@ -166,7 +169,10 @@ def run_pipeline(
         dependencies._config.update(config)
     else:
         dependencies = DependencyManager(config)
-    dependencies.update_context_variables(output_dir=output_dir)
+    dependencies.update_context_variables(
+        output_dir=output_dir,
+        pipeline_name=_get_pipeline_name(),
+    )
 
     checkpoint_reached = True
     checkpoint_file = None
@@ -243,6 +249,20 @@ def run_step[T](step: PipelineStep[T]) -> T:
 def checkpoint(name: str) -> None:
     """Alias for `run_step(Checkpoint(name))`"""
     Checkpoint(name).__run_step__()
+
+
+def _get_pipeline_name() -> str:
+    return Path(sys.argv[0]).name.split('.', 1)[0]
+
+
+def _copy_pipeline_file_to_output(output_dir: Path) -> None:
+    src_path = Path(sys.argv[0])
+    dst_path = output_dir / src_path.name
+
+    if src_path == dst_path:
+        return
+
+    shutil.copy2(src_path, dst_path)
 
 
 def _find_config_file(dir_path: Path) -> Path | None:

@@ -1,4 +1,4 @@
-# LEarning PipeLine recipE Library (lepel)
+# LEarning Pipeline recipE Library (lepel)
 
 Minimal utilities to author, run and resume single-machine experiment pipelines.
 
@@ -12,7 +12,7 @@ pip install git+https://github.com/overberne/lepel
 
 ## Concepts
 
-- DependencyManager: simple DI container for wiring factories and singletons, resolving by type or name and holding runtime config/context variables.
+- DependencyManager: simple DI container for wiring factories and singletons, resolving by type or name and holding runtime config/context variables. Stores/restores state for singletons if they match the `Stateful` protocol.
 - PipelineStep: abstract base for pipeline steps. Steps implement `run(self, ...)` and receive injected args (e.g. `output_dir`, `pipeline_step`, `dependencies`).
 - checkpoint: small typed dict + helpers (save/load) that serialize the dependency manager state via cloudpickle.
 - run_pipeline: runner that loads config, applies overrides, wires a `DependencyManager`, copies config into `output_dir`, and executes pipeline steps in order. Checkpoints can be saved and resumed.

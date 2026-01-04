@@ -1,4 +1,4 @@
-# LEarning PipELine (Lepel)
+# LEarning PipeLine recipE Library (lepel)
 
 Minimal utilities to author, run and resume single-machine experiment pipelines.
 
@@ -20,13 +20,13 @@ pip install git+https://github.com/overberne/lepel
 
 ## Quickstart
 
-- Write a pipeline function that registers dependencies on a `DependencyManager` and imports/uses `PipelineStep` subclasses. Example sketch:
+- Write a pipeline recipe that registers dependencies on a `DependencyManager` and imports/uses `PipelineStep` subclasses. Example sketch:
 
 ```python
 from lepel import DependencyManager, PipelineStep, checkpoint, run_pipeline, run_step
 from my_library import MyPipelineStep
 
-def pipeline(dependencies: DependencyManager):
+def recipe(dependencies: DependencyManager):
     # Preamble: register factories/singletons on dependencies
     dependencies.register(...)
     # Pipeline body
@@ -35,7 +35,7 @@ def pipeline(dependencies: DependencyManager):
     run_step(MyPipelineStep(**options))
 
 if __name__ == '__main__':
-    run_pipeline(pipeline, output_dir='output', config_file='config.yaml')
+    run_pipeline(recipe, output_dir='output', config_file='config.yaml')
 ```
 
 ### CLI helpers

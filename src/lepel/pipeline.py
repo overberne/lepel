@@ -81,7 +81,7 @@ class Checkpoint(PipelineStep):
 
 
 def run_pipeline(
-    pipeline: Callable[..., Any],
+    recipe: Callable[..., Any],
     *,
     output_dir: str | PathLike[str] | Path,
     config_file: str | PathLike[str] | Path | None = None,
@@ -94,7 +94,7 @@ def run_pipeline(
 ) -> None:
     """Run a pipeline function with dependency injection, config and checkpoints.
 
-    The ``pipeline`` callable defines a sequence of pipeline steps and a
+    The ``recipe`` callable defines a sequence of pipeline steps and a
     preamble where dependencies can be registered on the provided
     :class:`~lepel.dependency_manager.DependencyManager`. This function sets up
     configuration, the dependency manager, optional checkpoint restoration,
@@ -108,7 +108,7 @@ def run_pipeline(
 
     Parameters
     ----------
-    pipeline : Callable[..., Any]
+    recipe : Callable[..., Any]
         The pipeline entry function. It will be called with its arguments
         injected from the dependency manager. Typically this function will
         import or reference pipeline step classes which are instantiated as
@@ -149,7 +149,7 @@ def run_pipeline(
     if auto_subdirs:
         output_dir = _get_output_subdir(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-    _copy_pipeline_file_to_output(output_dir)
+    _copy_recipe_file_to_output(output_dir)
 
     if save_git:
         save_git_status(output_dir)
@@ -250,7 +250,7 @@ def run_pipeline(
     # unwrap_pipeline_steps = _wrap_subclasses_init(PipelineStep, init_wrapper)
     unwrap_pipeline_steps = _wrap_subclasses_method(PipelineStep, '__run_step__', run_step_wrapper)
     logger.info('Initiating pipeline...')
-    pipeline(**dependencies.prepare_injection(pipeline))
+    recipe(**dependencies.prepare_injection(recipe))
     logger.info('Pipeline finished!')
     unwrap_pipeline_steps()
 
@@ -277,11 +277,15 @@ def _get_pipeline_name() -> str:
     return Path(sys.argv[0]).name.split('.', 1)[0]
 
 
-def _copy_pipeline_file_to_output(output_dir: Path) -> None:
+def _copy_recipe_file_to_output(output_dir: Path) -> None:
     src_path = Path(sys.argv[0])
     dst_path = output_dir / src_path.name
 
-    if src_path == dst_path or src_path.name == 'pytest':
+    # No need to copy
+    if src_path == dst_path:
+        return
+    # Do not copy when running tests
+    if src_path.name == 'pytest':
         return
 
     shutil.copy2(src_path, dst_path)

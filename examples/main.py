@@ -11,7 +11,7 @@ class FooStep(PipelineStep[str]):
         return str(foo)
 
 
-def pipeline(dependencies: DependencyManager) -> None:
+def recipe(dependencies: DependencyManager) -> None:
     dependencies.context.foo = 42
     foo = run_step(FooStep('Foo'))
     print(foo)
@@ -22,7 +22,7 @@ if __name__ == '__main__':
     namespace, rest_args = argparser.parse_known_args()
 
     run_pipeline(
-        pipeline,
+        recipe,
         output_dir=namespace.output_dir,
         config_file=namespace.config,
         checkpoint=namespace.checkpoint,

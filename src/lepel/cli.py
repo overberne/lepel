@@ -22,6 +22,12 @@ def default_argparser(description: str = 'Lepel experiment pipeline') -> argpars
         default=None,
         help='Optional, name of the starting checkpoint, or "latest".',
     )
+    parser.add_argument(
+        '-g',
+        '--save-git',
+        action='store_true',
+        help='Optional, log the git status.',
+    )
 
     return parser
 

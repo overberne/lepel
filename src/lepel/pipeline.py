@@ -13,6 +13,7 @@ from lepel.checkpoint import Checkpoint as CheckpointData
 from lepel.checkpoint import load_checkpoint, save_checkpoint
 from lepel.config import load_config, save_config
 from lepel.dependency_manager import DependencyManager
+from lepel.git import save_git_status
 
 _CONFIG_EXTENSIONS = ('.yaml', '.yml', '.json', '.toml')
 _CONFIG_GLOB_PATTERNS = tuple(f'config{ext}' for ext in _CONFIG_EXTENSIONS)
@@ -82,6 +83,7 @@ def run_pipeline(
     output_dir: str | PathLike[str] | Path,
     config_file: str | PathLike[str] | Path | None = None,
     checkpoint: str | None = None,
+    save_git: bool = False,
     dependencies: DependencyManager | None = None,
     logger: Logger = getLogger(),
     **config_override: Any,
@@ -138,6 +140,9 @@ def run_pipeline(
     output_dir = Path(output_dir)
     output_dir.mkdir(exist_ok=True)
     _copy_pipeline_file_to_output(output_dir)
+
+    if save_git:
+        save_git_status(output_dir)
 
     if config_file:
         config_file = Path(config_file)

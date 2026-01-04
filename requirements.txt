@@ -1,5 +1,6 @@
 -e .
 cloudpickle==3.1.2
+coolname==2.2.0
 gitpython==3.1.46
 pytest==9.0.2
 pyyaml==6.0.3

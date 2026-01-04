@@ -1,13 +1,16 @@
 # pyright: reportPrivateUsage=false
+import datetime
 import inspect
 import shutil
+import sys
 import warnings
 from abc import ABC, abstractmethod
 from logging import Logger, getLogger
 from os import PathLike
 from pathlib import Path
 from typing import Any, Callable, Type
-import sys
+
+from coolname import generate_slug  # pyright: ignore[reportMissingTypeStubs]
 
 from lepel.checkpoint import Checkpoint as CheckpointData
 from lepel.checkpoint import load_checkpoint, save_checkpoint
@@ -84,6 +87,7 @@ def run_pipeline(
     config_file: str | PathLike[str] | Path | None = None,
     checkpoint: str | None = None,
     save_git: bool = False,
+    auto_subdirs: bool = True,
     dependencies: DependencyManager | None = None,
     logger: Logger = getLogger(),
     **config_override: Any,
@@ -123,6 +127,10 @@ def run_pipeline(
         When set, the runner will attempt to load the checkpoint and resume
         execution from the next step after the matching :class:`Checkpoint`
         step with the same name.
+    save_git : bool, optional
+        When true, saves the git status to a `/git` subdirectory.
+    auto_subdirs : bool, optional
+        When true, stores the run in a subdirectory `YYYYMMdd-HHmmss-{slug1}-{slug2}`
     dependencies : DependencyManager, optional
         Optional :class:`~lepel.dependency_manager.DependencyManager` instance.
         If provided, this dependency manager will be used instead of creating
@@ -138,7 +146,9 @@ def run_pipeline(
         configuration file.
     """
     output_dir = Path(output_dir)
-    output_dir.mkdir(exist_ok=True)
+    if auto_subdirs:
+        output_dir = _get_output_subdir(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
     _copy_pipeline_file_to_output(output_dir)
 
     if save_git:
@@ -252,6 +262,15 @@ def run_step[T](step: PipelineStep[T]) -> T:
 def checkpoint(name: str) -> None:
     """Alias for `run_step(Checkpoint(name))`"""
     Checkpoint(name).__run_step__()
+
+
+def _get_output_subdir(output_dir: Path) -> Path:
+    if output_dir == Path():
+        return output_dir
+
+    timestamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+    slug = generate_slug(2)  # e.g. "mottled-crab"
+    return output_dir / f'{timestamp}-{slug}'
 
 
 def _get_pipeline_name() -> str:

@@ -12,7 +12,7 @@ class FooStep(PipelineStep[str]):
 
 
 def pipeline(dependencies: DependencyManager) -> None:
-    dependencies.update_context_variables(foo=42)
+    dependencies.context.foo = 42
     foo = run_step(FooStep('Foo'))
     print(foo)
 

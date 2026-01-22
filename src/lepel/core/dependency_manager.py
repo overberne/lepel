@@ -12,7 +12,7 @@ from typing import (
     runtime_checkable,
 )
 
-from lepel.context import Context
+from lepel.core.context import Context
 
 # Denotes whether a factory houses a singleton
 _SINGLETON_ATTR = '__is_singleton__'

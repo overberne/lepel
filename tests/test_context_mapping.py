@@ -1,6 +1,6 @@
 import pytest
 
-from lepel.context import Context
+from lepel.core import Context
 
 
 def test_basic_get_set_item_and_attribute():

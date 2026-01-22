@@ -1,5 +1,5 @@
 from lepel import DependencyManager, PipelineStep, run_pipeline, run_step
-from lepel.cli import cli_args_to_config, default_argparser
+from lepel.extensions.cli import cli_args_to_config, default_argparser
 
 
 class FooStep(PipelineStep[str]):

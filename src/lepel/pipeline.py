@@ -14,9 +14,8 @@ from coolname import generate_slug  # pyright: ignore[reportMissingTypeStubs]
 
 from lepel.checkpoint import Checkpoint as CheckpointData
 from lepel.checkpoint import load_checkpoint, save_checkpoint
-from lepel.config import load_config, save_config
-from lepel.dependency_manager import DependencyManager
-from lepel.git import save_git_status
+from lepel.core.config import load_config, save_config
+from lepel.core.dependency_manager import DependencyManager
 
 _CONFIG_EXTENSIONS = ('.yaml', '.yml', '.json', '.toml')
 _CONFIG_GLOB_PATTERNS = tuple(f'config{ext}' for ext in _CONFIG_EXTENSIONS)
@@ -152,6 +151,8 @@ def run_pipeline(
     _copy_recipe_file_to_output(output_dir)
 
     if save_git:
+        from lepel.extensions.git import save_git_status
+
         save_git_status(output_dir)
 
     if config_file:
@@ -241,7 +242,7 @@ def run_pipeline(
             else:
                 if current_step > len(results):
                     raise RuntimeError(
-                        f'Checkpoint "{checkpoint_file}" did not contain enough stored results'
+                        f'Checkpoint "{checkpoint_file}" did not contain enough stored resu lts'
                     )
                 return results[current_step - 1]
 

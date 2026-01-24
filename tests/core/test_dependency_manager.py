@@ -1,4 +1,4 @@
-from typing import Any, Protocol
+from typing import Protocol
 
 import pytest
 
@@ -22,56 +22,56 @@ class SubService(Service):
 
 
 def test_raise_on_override():
-    dm = DependencyManager()
-    dm.register(Service)
-    dm.register(Service, allow_override=True)
+    dependencies = DependencyManager()
+    dependencies.add_transient(Service)
+    dependencies.add_transient(Service, allow_override=True)
 
     with pytest.raises(RuntimeError):
-        dm.register(Service, allow_override=False)
+        dependencies.add_transient(Service, allow_override=False)
 
 
 def test_inject_name_mismatch_raises():
-    dm = DependencyManager()
+    dependencies = DependencyManager()
 
     def fn(foo):  # type: ignore
         return foo  # type: ignore
 
     with pytest.raises(LookupError):
-        dm.prepare_injection(fn)  # type: ignore
+        dependencies.prepare_injection(fn)  # type: ignore
 
 
 def test_inject_type_mismatch_raises():
-    dm = DependencyManager()
-    dm.context.foo = 123
+    dependencies = DependencyManager()
+    dependencies.context.foo = 123
 
     def fn(foo: str):
         return foo
 
     with pytest.raises(LookupError):
-        dm.prepare_injection(fn)
+        dependencies.prepare_injection(fn)
 
 
 def test_inject_from_context_variables():
-    dm = DependencyManager()
-    dm.context.foo = 123
+    dependencies = DependencyManager()
+    dependencies.context.foo = 123
 
     def fn(foo):  # type: ignore
         return foo  # type: ignore
 
-    kwargs = dm.prepare_injection(fn)  # type: ignore
+    kwargs = dependencies.prepare_injection(fn)  # type: ignore
     assert 'foo' in kwargs
     assert kwargs['foo'] == 123
 
     def fn(foo: int):
         return foo
 
-    kwargs = dm.prepare_injection(fn)
+    kwargs = dependencies.prepare_injection(fn)
     assert 'foo' in kwargs
     assert kwargs['foo'] == 123
 
 
 def test_inject_from_config():
-    dm = DependencyManager(
+    dependencies = DependencyManager(
         config={
             'foo': 42,
             'baz': 0,
@@ -84,7 +84,7 @@ def test_inject_from_config():
     def fn(foo):  # type: ignore
         return foo  # type: ignore
 
-    kwargs = dm.prepare_injection(fn)  # type: ignore
+    kwargs = dependencies.prepare_injection(fn)  # type: ignore
     assert kwargs['foo'] == 42
 
     class Bar:
@@ -92,7 +92,7 @@ def test_inject_from_config():
             return baz
 
     bar = Bar()
-    kwargs = dm.prepare_injection(bar.foo)
+    kwargs = dependencies.prepare_injection(bar.foo)
     assert kwargs['baz'] == 1
 
     class Baz:
@@ -100,30 +100,30 @@ def test_inject_from_config():
             return baz
 
     baz = Baz()
-    kwargs = dm.prepare_injection(baz.foo)
+    kwargs = dependencies.prepare_injection(baz.foo)
     assert kwargs['baz'] == 3
 
 
 def test_inject_default():
-    dm = DependencyManager()
+    dependencies = DependencyManager()
 
     def fn(foo: str = 'bar'):
         return foo
 
-    kwargs = dm.prepare_injection(fn)
+    kwargs = dependencies.prepare_injection(fn)
     assert 'foo' in kwargs
     foo = kwargs['foo']
     assert foo == 'bar'
 
 
 def test_inject_by_type():
-    dm = DependencyManager()
-    dm.register(lambda: Service(value='ok'), service_class=Service)
+    dependencies = DependencyManager()
+    dependencies.add_transient(lambda: Service(value='ok'), service_class=Service)
 
     def fn(svc: Service):
         return svc
 
-    kwargs = dm.prepare_injection(fn)
+    kwargs = dependencies.prepare_injection(fn)
     assert 'svc' in kwargs
     svc = kwargs['svc']
     assert isinstance(svc, Service)
@@ -131,13 +131,13 @@ def test_inject_by_type():
 
 
 def test_inject_by_type_with_class_register():
-    dm = DependencyManager(config={'value': 'ok'})
-    dm.register(Service)
+    dependencies = DependencyManager(config={'value': 'ok'})
+    dependencies.add_transient(Service)
 
     def fn(svc: Service):
         return svc
 
-    kwargs = dm.prepare_injection(fn)
+    kwargs = dependencies.prepare_injection(fn)
     assert 'svc' in kwargs
     svc = kwargs['svc']
     assert isinstance(svc, Service)
@@ -145,13 +145,13 @@ def test_inject_by_type_with_class_register():
 
 
 def test_inject_by_protocol():
-    dm = DependencyManager()
-    dm.register(lambda: Service(value='ok'), service_class=FooProtocol)
+    dependencies = DependencyManager()
+    dependencies.add_transient(lambda: Service(value='ok'), service_class=FooProtocol)
 
     def fn(svc: FooProtocol):
         return svc
 
-    kwargs = dm.prepare_injection(fn)
+    kwargs = dependencies.prepare_injection(fn)
     assert 'svc' in kwargs
     svc = kwargs['svc']
     assert isinstance(svc, Service)
@@ -159,13 +159,13 @@ def test_inject_by_protocol():
 
 
 def test_inject_by_subclass():
-    dm = DependencyManager()
-    dm.register(lambda: SubService(value='ok'), service_class=Service)
+    dependencies = DependencyManager()
+    dependencies.add_transient(lambda: SubService(value='ok'), service_class=Service)
 
     def fn(svc: Service):
         return svc
 
-    kwargs = dm.prepare_injection(fn)
+    kwargs = dependencies.prepare_injection(fn)
     assert 'svc' in kwargs
     svc = kwargs['svc']
     assert isinstance(svc, Service)
@@ -192,35 +192,35 @@ def test_inject_by_generic_type():
     def fn_str(svc: GenericService[str]):
         return svc
 
-    dm = DependencyManager()
-    dm.register(factory)
-    dm.register_singleton(GenericService(0.0), GenericService[float])
-    dm.register(lambda: GenericService[bool](False), GenericService[bool])
+    dependencies = DependencyManager()
+    dependencies.add_transient(factory)
+    dependencies.add_singleton(GenericService(0.0), GenericService[float])
+    dependencies.add_transient(lambda: GenericService[bool](False), GenericService[bool])
 
-    kwargs = dm.prepare_injection(fn_int)
+    kwargs = dependencies.prepare_injection(fn_int)
     assert 'svc' in kwargs
     svc = kwargs['svc']
     assert isinstance(svc, GenericService)
     assert svc.foo == 0  # type: ignore
 
-    kwargs = dm.prepare_injection(fn_float)
+    kwargs = dependencies.prepare_injection(fn_float)
     assert 'svc' in kwargs
     svc = kwargs['svc']
     assert isinstance(svc, GenericService)
     assert svc.foo == 0.0  # type: ignore
 
-    kwargs = dm.prepare_injection(fn_bool)
+    kwargs = dependencies.prepare_injection(fn_bool)
     assert 'svc' in kwargs
     svc = kwargs['svc']
     assert isinstance(svc, GenericService)
     assert svc.foo == False  # type: ignore
 
     with pytest.raises(LookupError):
-        kwargs = dm.prepare_injection(fn_str)
+        kwargs = dependencies.prepare_injection(fn_str)
 
 
 def test_inject_by_type_nested_dependency():
-    dm = DependencyManager()
+    dependencies = DependencyManager()
 
     class WrapperService:
         def __init__(self, svc: Service):
@@ -229,10 +229,10 @@ def test_inject_by_type_nested_dependency():
     def fn(svc: WrapperService):
         return svc
 
-    dm.register(WrapperService)
-    dm.register(lambda: Service('ok'), Service)
+    dependencies.add_transient(WrapperService)
+    dependencies.add_transient(lambda: Service('ok'), Service)
 
-    kwargs = dm.prepare_injection(fn)
+    kwargs = dependencies.prepare_injection(fn)
     assert 'svc' in kwargs
     svc = kwargs['svc']
     assert isinstance(svc, WrapperService)
@@ -240,68 +240,39 @@ def test_inject_by_type_nested_dependency():
 
 
 def test_resolution_precedence():
-    dm = DependencyManager(config={'foo': 'from-config'})
+    dependencies = DependencyManager(config={'foo': 'from-config'})
 
     def fn(foo):  # type: ignore
         return foo  # type: ignore
 
-    kwargs = dm.prepare_injection(fn)  # type: ignore
+    kwargs = dependencies.prepare_injection(fn)  # type: ignore
     assert kwargs['foo'] == 'from-config'
 
     # Context variable should override container and config
-    dm.context.foo = 'from-context'
+    dependencies.context.foo = 'from-context'
 
-    kwargs = dm.prepare_injection(fn)  # type: ignore
+    kwargs = dependencies.prepare_injection(fn)  # type: ignore
     assert kwargs['foo'] == 'from-context'
 
     def fn(foo: Service):  # type: ignore
         return foo  # type: ignore
 
-    dm.register(lambda: Service('ok'), Service)
-    kwargs = dm.prepare_injection(fn)  # type: ignore
+    dependencies.add_transient(lambda: Service('ok'), Service)
+    kwargs = dependencies.prepare_injection(fn)  # type: ignore
     assert isinstance(kwargs['foo'], Service)
-
-
-def test_statefulness():
-    class StatefulService:
-        def __init__(self, foo: int):
-            self.foo = foo
-
-        def state_dict(self) -> dict[str, Any]:
-            return {'foo': self.foo}
-
-        def load_state_dict(self, state_dict: dict[str, Any]) -> None:
-            self.foo = state_dict['foo']
-
-    dm = DependencyManager({'bar': 'baz'})
-    dm.register_singleton(StatefulService(0))
-    dm.context.baz = False
-
-    def foo(service: StatefulService, bar: str, baz: bool):
-        return service, bar, baz
-
-    state_dict = dm.state_dict()
-    dm_assert = DependencyManager()
-    dm_assert.register_singleton(StatefulService(1))
-    dm_assert.load_state_dict(state_dict)
-
-    service, bar, baz = foo(**dm_assert.prepare_injection(foo))
-    assert service.foo == 0
-    assert bar == 'baz'
-    assert baz == False
 
 
 try:
     from dependency_injector import providers
 
     def test_inject_by_type_with_provider():
-        dm = DependencyManager()
-        dm.register(providers.Factory(Service, value='ok'))
+        dependencies = DependencyManager()
+        dependencies.add_transient(providers.Factory(Service, value='ok'))
 
         def fn(svc: Service):
             return svc
 
-        kwargs = dm.prepare_injection(fn)
+        kwargs = dependencies.prepare_injection(fn)
         assert 'svc' in kwargs
         svc = kwargs['svc']
         assert isinstance(svc, Service)

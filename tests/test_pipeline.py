@@ -59,8 +59,8 @@ def test_pipeline(tmp_path: Path):
         nonlocal foo_value
         foo_value = foo
         # Preamble
-        dependencies.register(TransientService)
-        dependencies.register_singleton(singleton)
+        dependencies.add_transient(TransientService)
+        dependencies.add_singleton(singleton)
         # Pipeline
         run_step(SetFirstStepIfNotSet('before-checkpoints'))
         checkpoint('first')

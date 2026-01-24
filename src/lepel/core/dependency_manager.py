@@ -1,28 +1,12 @@
 # pyright: reportPrivateUsage=false
 import inspect
-from typing import (
-    Any,
-    Callable,
-    OrderedDict,
-    Protocol,
-    Type,
-    cast,
-    get_type_hints,
-    overload,
-    runtime_checkable,
-)
+from typing import Any, Callable, OrderedDict, Type, cast, get_type_hints, overload
 
 from lepel.core.context import Context
 
 # Denotes whether a factory houses a singleton
 _SINGLETON_ATTR = '__is_singleton__'
 _ORIGINAL_FACTORY_ATTR = '__original_factory__'
-
-
-@runtime_checkable
-class Stateful(Protocol):
-    def state_dict(self) -> dict[str, Any]: ...
-    def load_state_dict(self, state_dict: dict[str, Any]) -> None: ...
 
 
 class DependencyManager:
@@ -52,8 +36,8 @@ class DependencyManager:
         self._context = Context()
         self._type_providers: OrderedDict[type, Callable[..., Any]] = OrderedDict()
 
-        self.register_singleton(self)
-        self.register_singleton(self._context)
+        self.add_singleton(self)
+        self.add_singleton(self._context)
 
     def __contains__(self, dependency: Any) -> bool:
         if dependency is None:
@@ -119,7 +103,7 @@ class DependencyManager:
         return wired_factory
 
     @overload
-    def register[T](
+    def add_transient[T](
         self, factory: Callable[..., T] | Type[Any], *, allow_override: bool = False
     ) -> None:
         """Register a dependency in the container. Any arguments in the factory
@@ -146,7 +130,7 @@ class DependencyManager:
         """
 
     @overload
-    def register[T](
+    def add_transient[T](
         self,
         factory: Callable[..., Any] | Type[Any],
         service_class: Type[T],
@@ -177,7 +161,7 @@ class DependencyManager:
         """
         ...
 
-    def register[T](
+    def add_transient[T](
         self,
         factory: Callable[..., Any] | Type[Any],
         service_class: Type[T] | None = None,
@@ -205,7 +189,7 @@ class DependencyManager:
         self._type_providers[service_class] = self.wire(factory)
 
     @overload
-    def register_singleton(self, instance: Any, *, allow_override: bool = False) -> None:
+    def add_singleton(self, instance: Any, *, allow_override: bool = False) -> None:
         """Register a dependency in the container.
 
         NOTE: Instances of a generic class should pass the generic class
@@ -226,7 +210,7 @@ class DependencyManager:
         """
 
     @overload
-    def register_singleton[T](
+    def add_singleton[T](
         self,
         instance: Any,
         service_class: Type[T],
@@ -253,7 +237,7 @@ class DependencyManager:
         """
         ...
 
-    def register_singleton[T](
+    def add_singleton[T](
         self,
         instance: T,
         service_class: Type[T] | None = None,
@@ -264,7 +248,7 @@ class DependencyManager:
             return instance
 
         setattr(factory, _SINGLETON_ATTR, True)
-        self.register(
+        self.add_transient(
             factory,
             service_class=service_class or instance.__class__,
             allow_override=allow_override,
@@ -502,33 +486,17 @@ class DependencyManager:
             orig_factory: Callable[..., Any] = getattr(factory, _ORIGINAL_FACTORY_ATTR)
             self.throw_if_uninjectable(orig_factory)
 
+    # TODO: Load state via state manager instead of dependency manager.
     def state_dict(self) -> dict[str, Any]:
-        # Only for singletons, can be a list because _type_providers is ordered.
-        state_dicts: list[dict[str, Any]] = [
-            instance.state_dict()
-            for cls, instance in self._singletons.items()
-            if issubclass(cls, Stateful) and cls is not DependencyManager
-        ]
         return {
-            'state_dicts': state_dicts,
             'config': self._config,
             'context': self._context._dict,
         }
 
     def load_state_dict(self, state_dict: dict[str, Any]) -> None:
-        # Only for singletons, can be a list because _type_providers is ordered.
-        stateful_singletons: list[Stateful] = [
-            instance
-            for cls, instance in self._singletons.items()
-            if issubclass(cls, Stateful) and cls is not DependencyManager
-        ]
-        # Can zip because singletons are an ordered dict
-        for instance, dict_ in zip(stateful_singletons, state_dict.get('state_dicts', [])):
-            instance.load_state_dict(dict_)
-
         self._config = state_dict.get('config', {})
         self._context = Context(state_dict.get('context', {}))
-        self.register_singleton(self._context, allow_override=True)
+        self.add_singleton(self._context, allow_override=True)
 
     def _resolve_from_config(
         self,

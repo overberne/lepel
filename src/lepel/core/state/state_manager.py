@@ -1,16 +1,13 @@
 from collections import defaultdict
-from typing import Iterable
+from typing import Any, Hashable, Mapping
 
 from lepel.core.state.dirty_trackable import DirtyTrackable
 from lepel.core.state.fingerprintable import Fingerprintable
-from lepel.core.state.state_snapshot import (
-    DeltaStateSnapshot,
-    FullStateSnapshot,
-    StateSnapshot,
-    Fingerprints,
-    StateDicts,
-)
 from lepel.core.state.stateful import Stateful
+
+ObjectKey = tuple[str, int]
+Fingerprints = dict[ObjectKey, Hashable]
+StateDicts = dict[ObjectKey, Mapping[str, Any]]
 
 
 class StateManager:
@@ -43,65 +40,20 @@ class StateManager:
         if obj not in objects:
             objects.append(obj)
 
-    def _load_snapshots(self, snapshots: Iterable[StateSnapshot]) -> Fingerprints:
-        """
-        Load a sequence of state snapshots into tracked objects.
-
-        Snapshots must be provided in reverse chronological order (latest first).
-        Only the most recent delta for each object is applied.
-
-        Parameters
-        ----------
-        snapshots : iterable of StateSnapshot
-            Snapshots to apply.
-
-        Returns
-        -------
-        Fingerprints
-            Latest fingerprints after applying the snapshots.
-        """
-        if not snapshots:
-            return {}
-
-        latest_deltas: StateDicts = {}
-        latest_fingerprints: Fingerprints = {}
-
-        # Replay snapshots, latest first.
-        for snapshot in snapshots:
-            if not latest_fingerprints:
-                latest_fingerprints = snapshot['fingerprints']
-
-            if snapshot['kind'] == 'full':
-                self._load_full_snapshot(snapshot)
-                break
-
-            for key, state in snapshot['state_dicts'].items():
-                if key not in latest_deltas:
-                    latest_deltas[key] = state
-
-        # Apply only latest deltas to tracked objects.
-        for (type_name, obj_index), obj_state in latest_deltas.items():
-            obj = self._tracked_objects[type_name][obj_index]
-            obj.load_state_dict(obj_state)
-
-        return latest_fingerprints
-
-    def _load_full_snapshot(self, snapshot: FullStateSnapshot) -> None:
+    def load(self, state_dicts: StateDicts) -> None:
         """
         Load a full state snapshot into tracked objects.
 
         Parameters
         ----------
-        snapshot : FullStateSnapshot
+        state_dicts : StateDicts
             Snapshot containing complete state dictionaries.
         """
-        state_dicts = snapshot.get('state_dicts', {})
-
         for (type_name, obj_index), obj_state in state_dicts.items():
             obj = self._tracked_objects[type_name][obj_index]
             obj.load_state_dict(obj_state)
 
-    def _delta(self, fingerprints: Fingerprints) -> DeltaStateSnapshot:
+    def delta(self, fingerprints: Fingerprints) -> tuple[StateDicts, Fingerprints]:
         """
         Compute an incremental (delta) snapshot of tracked objects.
 
@@ -115,12 +67,12 @@ class StateManager:
 
         Returns
         -------
-        DeltaStateSnapshot
-            Incremental snapshot containing updated state dictionaries
+        tuple[StateDicts, Fingerprints]
+            Incremental snapshot containing state delta dictionaries
             and fingerprints.
         """
-        updates: StateDicts = {}
-        fingerprints = fingerprints.copy()
+        delta: StateDicts = {}
+        current_fingerprints = fingerprints.copy()
 
         for type_name, objects in self._tracked_objects.items():
             for obj_index, obj in enumerate(objects):
@@ -132,42 +84,48 @@ class StateManager:
                     key = (type_name, obj_index)
                     if key in fingerprints and fingerprints[key] == fingerprint:
                         continue
-                    fingerprints[key] = fingerprint
+                    current_fingerprints[key] = fingerprint
 
                 key = (type_name, obj_index)
-                updates[key] = obj.state_dict()
+                delta[key] = obj.state_dict()
 
-        return {
-            'fingerprints': fingerprints,
-            'state_dicts': updates,
-            'kind': 'delta',
-        }
+        return delta, current_fingerprints
 
-    def _snapshot(self) -> FullStateSnapshot:
+    def snapshot(self) -> tuple[StateDicts, Fingerprints]:
         """
         Compute a full snapshot of all tracked objects.
 
         Returns
         -------
-        FullStateSnapshot
+        tuple[StateDicts, Fingerprints]
             Snapshot containing complete state dictionaries and fingerprints.
         """
-        return {
-            'fingerprints': {
+        return (
+            {
+                (type_name, obj_index): obj.state_dict()
+                for type_name, objects in self._tracked_objects.items()
+                for obj_index, obj in enumerate(objects)
+            },
+            {
                 (type_name, obj_index): obj.state_fingerprint()
                 for type_name, objects in self._tracked_objects.items()
                 for obj_index, obj in enumerate(objects)
                 if isinstance(obj, Fingerprintable)
             },
-            'state_dicts': {
-                (type_name, obj_index): obj.state_dict()
-                for type_name, objects in self._tracked_objects.items()
-                for obj_index, obj in enumerate(objects)
-            },
-            'kind': 'full',
-        }
+        )
 
-    def _clear_dirty_flags(self) -> None:
+    # def get_fingerprints(self) -> Fingerprints:
+    #     """
+    #     Get the current fingerprints of all tracked Fingerprintable objects.
+
+    #     Returns
+    #     -------
+    #     Fingerprints
+    #         Current fingerprints of tracked objects.
+    #     """
+    #     return
+
+    def clear_dirty_flags(self) -> None:
         """
         Clear dirty flags on all tracked dirty-trackable objects.
         """

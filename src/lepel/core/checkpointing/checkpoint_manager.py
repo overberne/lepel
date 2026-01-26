@@ -1,30 +1,27 @@
 # pyright: reportPrivateUsage=false
 import tempfile
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, Mapping, Iterable, cast
 
 from lepel.core.checkpointing.checkpoint_file_store import CheckpointFileStore
-from lepel.core.state import Fingerprints, StateManager
 
 _CHECKPOINT_GLOB = '[0-9][0-9][0-9][0-9]*_*.*.pkl'
 _CHECKPOINT_NAME_GLOB_TEMPLATE = '{name}.*.pkl'
 
 
-class CheckpointManager:
+class CheckpointManager[TSnapshot: Mapping[str, Any]]:
     """
     Manage persistence and restoration of application state via checkpoints.
 
-    This class coordinates with a :class:`StateManager` to produce either full
-    or incremental (delta) checkpoints and delegates serialization to a
-    :class:`CheckpointFileStore`. Checkpoints are written atomically and ordered
-    by a monotonically increasing index embedded in the filename.
+    The checkpoint manager produces either full or incremental (delta)
+    checkpoints and delegates serialization to a :class:`CheckpointFileStore`.
+    Checkpoints are written atomically and ordered by a monotonically increasing
+    index embedded in the filename.
 
     Parameters
     ----------
     dir : str or pathlib.Path
         Directory in which checkpoint files are stored.
-    state : StateManager
-        State manager responsible for producing and loading state snapshots.
     file_store : CheckpointFileStore
         Backend used to serialize and deserialize checkpoint data.
     """
@@ -32,24 +29,24 @@ class CheckpointManager:
     def __init__(
         self,
         checkpoint_dir: str | Path,
-        state: StateManager,
         file_store: CheckpointFileStore,
     ) -> None:
         self._checkpoint_dir = Path(checkpoint_dir)
-        self._state = state
         self._file_store = file_store
 
-    def save_incremental(self, name: str) -> Path:
+    def save_incremental(self, name: str, delta: TSnapshot) -> Path:
         """
         Save an incremental (delta) checkpoint.
 
         The delta is computed relative to the most recent checkpoint, if one
-        exists. After saving, all dirty flags in the tracked state are cleared.
+        exists.
 
         Parameters
         ----------
         name : str
             Logical name for the checkpoint (used in the filename).
+        delta : TSnapshot
+            Incremental snapshot capturing changes since the last checkpoint.
 
         Returns
         -------
@@ -57,45 +54,36 @@ class CheckpointManager:
             Path to the newly created checkpoint file.
         """
         latest_checkpoint_path = self._latest_checkpoint_path()
-        fingerprints: Fingerprints = {}
-
-        if latest_checkpoint_path:
-            lastest_checkpoint = self._file_store.load(latest_checkpoint_path)
-            fingerprints = lastest_checkpoint['fingerprints']
-
-        snapshot = self._state._delta(fingerprints)
         path = self._next_checkpoint_path(name, 'delta', latest_checkpoint_path)
-        _atomic_dump(self._file_store, snapshot, path)
-        self._state._clear_dirty_flags()
+        CheckpointManager._atomic_dump(self._file_store, delta, path)
         return path
 
-    def save_full(self, name: str) -> Path:
+    def save_full(self, name: str, state: TSnapshot) -> Path:
         """
         Save a full checkpoint of the current state.
 
         A full checkpoint captures the complete state of all tracked objects
-        regardless of prior checkpoints. After saving, all dirty flags in the
-        tracked state are cleared.
+        regardless of prior checkpoints.
 
         Parameters
         ----------
         name : str
             Logical name for the checkpoint (used in the filename).
+        state : TSnapshot
+            Full snapshot capturing the complete state.
 
         Returns
         -------
         pathlib.Path
             Path to the newly created checkpoint file.
         """
-        snapshot = self._state._snapshot()
         path = self._next_checkpoint_path(name, 'full', self._latest_checkpoint_path())
-        _atomic_dump(self._file_store, snapshot, path)
-        self._state._clear_dirty_flags()
+        CheckpointManager._atomic_dump(self._file_store, state, path)
         return path
 
-    def load_latest(self) -> str | None:
+    def load_latest(self) -> tuple[str, TSnapshot] | tuple[None, None]:
         """
-        Load the most recent checkpoint into the managed state.
+        Load the most recent checkpoint.
 
         All checkpoints are applied in reverse chronological order to reconstruct
         the latest state. This means the latest full checkpoint and any subsequent
@@ -103,19 +91,29 @@ class CheckpointManager:
 
         Returns
         -------
-        str or None
-            The stem (filename without extension) of the loaded checkpoint,
-            or ``None`` if no checkpoints exist.
+        tuple[str, TSnapshot] or tuple[None, None]
+            A tuple containing the stem (filename without extension) of the
+            loaded checkpoint and the corresponding snapshot, or ``None`` if
+            no checkpoints exist.
         """
         checkpoint_paths = self._all_checkpoint_paths_descending()
         if not checkpoint_paths:
-            return None
+            return None, None
 
-        ordered_snapshots = (self._file_store.load(path) for path in checkpoint_paths)
-        self._state._load_snapshots(ordered_snapshots)
-        return checkpoint_paths[0].stem
+        nearest_full_index = self._nearest_full_checkpoint_index(checkpoint_paths[0])
+        if nearest_full_index is None:
+            return None, None
 
-    def load(self, name: str) -> None:
+        snapshot_history = (
+            self._file_store.load(path)
+            for path in checkpoint_paths
+            if int(path.stem.split('_', 1)[0]) >= nearest_full_index
+        )
+
+        current_snapshot = self._replay_snapshots(snapshot_history)
+        return checkpoint_paths[0].stem, current_snapshot
+
+    def load(self, name: str) -> tuple[str, TSnapshot]:
         """
         Load a specific checkpoint by name.
 
@@ -128,10 +126,16 @@ class CheckpointManager:
         name : str
             Checkpoint name or filename stem.
 
+        Returns
+        -------
+        tuple[str, TSnapshot]
+            A tuple containing the stem (filename without extension) of the
+            loaded checkpoint and the corresponding snapshot.
+
         Raises
         ------
         FileNotFoundError
-            If no matching checkpoint file exists.
+            If no matching checkpoint file exists or if no full checkpoint exists.
         """
         checkpoint_path = self._get_checkpoint_by_name(name)
         if not checkpoint_path:
@@ -139,17 +143,22 @@ class CheckpointManager:
 
         if checkpoint_path.suffix == '.full.pkl':
             snapshot = self._file_store.load(checkpoint_path)
-            self._state._load_snapshots([snapshot])
-            return
+            return checkpoint_path.stem, snapshot
 
-        # Load all checkpoints up to and including the latest delta.
-        latest_index = int(checkpoint_path.stem.split('_', 1)[0])
-        checkpoints_subset = (
+        nearliest_full_index = self._nearest_full_checkpoint_index(checkpoint_path)
+        if nearliest_full_index is None:
+            raise FileNotFoundError(f'No full checkpoint found prior to delta: {name}')
+
+        # Load all checkpoints from the nearest full checkpoint up to and
+        # including the latest delta.
+        snapshot_index = int(checkpoint_path.stem.split('_', 1)[0])
+        snapshot_history = (
             self._file_store.load(p)
             for p in self._all_checkpoint_paths_descending()
-            if int(p.stem.split('_', 1)[0]) <= latest_index
+            if nearliest_full_index <= int(p.stem.split('_', 1)[0]) <= snapshot_index
         )
-        self._state._load_snapshots(checkpoints_subset)
+        current_snapshot = self._replay_snapshots(snapshot_history)
+        return checkpoint_path.stem, current_snapshot
 
     def _all_checkpoint_paths_descending(self) -> list[Path]:
         """
@@ -237,32 +246,118 @@ class CheckpointManager:
         filename = f'{next_index:04d}_{name}.{kind}.pkl'
         return self._checkpoint_dir / filename
 
+    def _nearest_full_checkpoint_index(self, checkpoint_path: Path) -> int | None:
+        """
+        Find the index of the most recent full checkpoint prior or equal to
+        the given checkpoint.
 
-def _atomic_dump(file_store: CheckpointFileStore, obj: Any, path: Path) -> None:
-    """
-    Atomically persist an object to disk.
+        Parameters
+        ----------
+        checkpoint_path : pathlib.Path
+            Reference checkpoint path.
 
-    The object is first written to a temporary file in the target directory
-    and then atomically renamed to the final path.
+        Returns
+        -------
+        int or None
+            Index of the previous full checkpoint, or ``None`` if none exists.
+        """
+        target_index = int(checkpoint_path.stem.split('_', 1)[0])
 
-    Parameters
-    ----------
-    file_store : CheckpointFileStore
-        Storage backend used to serialize the object.
-    obj : Any
-        Object to persist.
-    path : pathlib.Path
-        Destination file path.
-    """
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.NamedTemporaryFile(dir=str(path.parent), delete=False) as tf:
-        tmp = Path(tf.name)
-    try:
-        file_store.save(obj, tmp)
-        tmp.replace(path)
-    finally:
-        if tmp.exists():
-            try:
-                tmp.unlink()
-            except OSError:
-                pass
+        for path in self._all_checkpoint_paths_descending():
+            index = int(path.stem.split('_', 1)[0])
+            if index > target_index:
+                continue
+            if path.suffix == '.full.pkl':
+                return index
+
+        return None
+
+    def _previous_full_checkpoint_path(self, checkpoint_path: Path) -> Path | None:
+        """
+        Find the most recent full checkpoint prior to the given checkpoint.
+
+        Parameters
+        ----------
+        checkpoint_path : pathlib.Path
+            Reference checkpoint path.
+
+        Returns
+        -------
+        pathlib.Path or None
+            Path to the previous full checkpoint, or ``None`` if none exists.
+        """
+        target_index = int(checkpoint_path.stem.split('_', 1)[0])
+
+        for path in self._all_checkpoint_paths_descending():
+            index = int(path.stem.split('_', 1)[0])
+            if index >= target_index:
+                continue
+            if path.suffix == '.full.pkl':
+                return path
+
+        return None
+
+    def _replay_snapshots(self, snapshots: Iterable[TSnapshot]) -> TSnapshot:
+        """
+        Replay a sequence of state snapshots to reconstruct the latest state.
+
+        Snapshots must be provided in reverse chronological order (latest first).
+
+        Parameters
+        ----------
+        snapshots : iterable of TSnapshot
+            Snapshots to replay in reverse chronological order (latest first).
+
+        Returns
+        -------
+        TSnapshot
+            The reconstructed latest state snapshot.
+        """
+        snapshots_iter = iter(snapshots)
+        cumulative_snapshot = dict(next(snapshots_iter))
+
+        # Replay snapshots, latest first.
+        for snapshot in snapshots:
+            for key, value in snapshot.items():
+                if isinstance(value, dict):
+                    if key not in cumulative_snapshot:
+                        cumulative_snapshot[key] = {}
+                    cumulative_snapshot[key].update(value)
+                elif isinstance(value, list):
+                    if key not in cumulative_snapshot:
+                        cumulative_snapshot[key] = []
+                    cumulative_snapshot[key].extend(value)
+                else:
+                    cumulative_snapshot[key] = value
+
+        return cast(TSnapshot, cumulative_snapshot)
+
+    @staticmethod
+    def _atomic_dump(file_store: CheckpointFileStore, obj: Any, path: Path) -> None:
+        """
+        Atomically persist an object to disk.
+
+        The object is first written to a temporary file in the target directory
+        and then atomically renamed to the final path.
+
+        Parameters
+        ----------
+        file_store : CheckpointFileStore
+            Storage backend used to serialize the object.
+        obj : Any
+            Object to persist.
+        path : pathlib.Path
+            Destination file path.
+        """
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with tempfile.NamedTemporaryFile(dir=str(path.parent), delete=False) as tf:
+            tmp = Path(tf.name)
+        try:
+            file_store.save(obj, tmp)
+            tmp.replace(path)
+        finally:
+            if tmp.exists():
+                try:
+                    tmp.unlink()
+                except OSError:
+                    pass

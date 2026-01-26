@@ -12,6 +12,10 @@ try:
 except ImportError:
     yaml = None  # type: ignore
 
+CONFIG_EXTENSIONS = ('.yaml', '.yml', '.json', '.toml')
+CONFIG_GLOB_PATTERNS = tuple(f'config{ext}' for ext in CONFIG_EXTENSIONS)
+CONFIG_OVERRIDE_GLOB_PATTERNS = tuple(f'config_override{ext}' for ext in CONFIG_EXTENSIONS)
+
 
 def load_config(config_file: Path) -> dict[str, Any]:
     if not config_file.exists():
@@ -65,3 +69,23 @@ def save_config(config: Mapping[str, Any], config_file: Path) -> None:
             raise RuntimeError(
                 f'Unsupported config file type: {suffix}, supported extensions: .yaml, .yml, .json, .toml'
             )
+
+
+def find_config_file(dir_path: Path) -> Path | None:
+    """Find a valid configuration file matching `config.[yaml|yml|json|toml]`"""
+    config_files = [path for pattern in CONFIG_GLOB_PATTERNS for path in dir_path.glob(pattern)]
+    if config_files and config_files[0].exists():
+        return config_files[0]
+
+    return None
+
+
+def find_config_override_file(dir_path: Path) -> Path | None:
+    """Find a valid configuration override file matching `config_override.[yaml|yml|json|toml]`"""
+    config_files = [
+        path for pattern in CONFIG_OVERRIDE_GLOB_PATTERNS for path in dir_path.glob(pattern)
+    ]
+    if config_files and config_files[0].exists():
+        return config_files[0]
+
+    return None

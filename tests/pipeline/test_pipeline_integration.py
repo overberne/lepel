@@ -17,10 +17,10 @@ class Counter:
 
     # Stateful
     def state_dict(self) -> Mapping[str, Any]:
-        return {"value": self.value}
+        return {'value': self.value}
 
     def load_state_dict(self, state: Mapping[str, Any]) -> None:
-        self.value = state["value"]
+        self.value = state['value']
         self._dirty = True
 
     # DirtyTrackable
@@ -42,11 +42,11 @@ class StepAdd(PipelineStep[int]):
 
 
 def test_run_pipeline_creates_checkpoints_and_saves_config(tmp_path: Path):
-    output_dir = tmp_path / "out"
+    output_dir = tmp_path / 'out'
     output_dir.mkdir()
 
-    config_file = tmp_path / "config.json"
-    config_file.write_text('{"by": 2}', encoding="utf-8")
+    config_file = tmp_path / 'config.json'
+    config_file.write_text('{"by": 2}', encoding='utf-8')
 
     counter = Counter()
 
@@ -56,8 +56,8 @@ def test_run_pipeline_creates_checkpoints_and_saves_config(tmp_path: Path):
         dependencies.add_singleton(counter)
         state.track(counter)
 
-        run_step(StepAdd(config["by"]))  # should increment counter by 2
-        checkpoint("mid")
+        run_step(StepAdd(config['by']))  # should increment counter by 2
+        checkpoint('mid')
         run_step(StepAdd(1))  # then increment by 1
 
     # Run from a stable cwd so checkpoints are found under output_dir/checkpoints
@@ -68,14 +68,14 @@ def test_run_pipeline_creates_checkpoints_and_saves_config(tmp_path: Path):
         run_pipeline(recipe, output_dir=output_dir, config_file=config_file, auto_subdirs=False)
 
         # config copied
-        assert (output_dir / "config.json").exists()
+        assert (output_dir / 'config.json').exists()
 
         # checkpoints exist
-        checkpoints_dir = output_dir / "checkpoints"
+        checkpoints_dir = output_dir / 'checkpoints'
         assert checkpoints_dir.exists()
-        files = sorted(p.name for p in checkpoints_dir.glob("*.pkl"))
-        assert any(name.endswith(".delta.pkl") for name in files)
-        assert any(name.endswith(".full.pkl") for name in files)
+        files = sorted(p.name for p in checkpoints_dir.glob('*.pkl'))
+        assert any(name.endswith('.delta.pkl') for name in files)
+        assert any(name.endswith('.full.pkl') for name in files)
 
         # counter should have been incremented by 2 then 1
         assert counter.value == 3

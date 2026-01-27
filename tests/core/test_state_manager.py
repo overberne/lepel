@@ -8,10 +8,10 @@ class SimpleStateful:
         self.value = value
 
     def state_dict(self) -> Mapping[str, Any]:
-        return {"value": self.value}
+        return {'value': self.value}
 
     def load_state_dict(self, state: Mapping[str, Any]) -> None:
-        self.value = state["value"]
+        self.value = state['value']
 
 
 class FingerprintableState(SimpleStateful):
@@ -36,7 +36,7 @@ class DirtyFingerprintableState(FingerprintableState):
 
 
 def _type_name(obj: Any) -> str:
-    return f"{obj.__class__.__module__}.{obj.__class__.__qualname__}"
+    return f'{obj.__class__.__module__}.{obj.__class__.__qualname__}'
 
 
 def test_track_deduplicates_objects():
@@ -101,8 +101,8 @@ def test_load_applies_state_to_tracked_objects_by_type_and_index():
     state.track(a1)
 
     state_dicts: StateDicts = {
-        (_type_name(a0), 0): {"value": 10},
-        (_type_name(a0), 1): {"value": 20},
+        (_type_name(a0), 0): {'value': 10},
+        (_type_name(a0), 1): {'value': 20},
     }
     state.load(state_dicts)
 

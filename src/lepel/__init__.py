@@ -6,9 +6,10 @@ from lepel.core import (
     DependencyManager,
     DirtyTrackable,
     Fingerprintable,
+    PipelineStep,
     Stateful,
     StateManager,
 )
 from lepel.extensions.cli import cli_args_to_config, default_argparser
 from lepel.extensions.cloudpickle_file_store import CloudpickleFileStore
-from lepel.pipeline import Checkpoint, PipelineStep, checkpoint, run_pipeline, run_step
+from lepel.pipeline import checkpoint, run_pipeline, run_step

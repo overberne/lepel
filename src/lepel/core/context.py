@@ -1,7 +1,9 @@
-from typing import Any, Iterator, MutableMapping
+from typing import Any, Iterator, Mapping, MutableMapping
+
+from lepel.core.state import Stateful, DirtyTrackable
 
 
-class Context(MutableMapping[str, Any]):
+class Context(MutableMapping[str, Any], Stateful, DirtyTrackable):
     """
     Lightweight attribute/dict-backed container for variables.
 
@@ -39,6 +41,7 @@ class Context(MutableMapping[str, Any]):
     """
 
     _dict: dict[str, Any]
+    _is_dirty: bool
 
     def __init__(self, vars: dict[str, Any] | None = None) -> None:
         """
@@ -49,15 +52,11 @@ class Context(MutableMapping[str, Any]):
         vars : dict[str, Any] | None, optional
             Optional initial mapping to populate the context.
         """
-        # Use object.__setattr__ to avoid recursion into __setattr__.
+        # Use object.__setattr__ to avoid unbound variables in self.__setattr__
         object.__setattr__(self, '_dict', vars or {})
+        object.__setattr__(self, '_is_dirty', True)
 
     def __getattribute__(self, name: str) -> Any:
-        # Direct access to the internal storage should bypass attribute
-        # lookup logic to avoid recursion.
-        if name == '_dict':
-            return object.__getattribute__(self, '_dict')
-
         # If the attribute exists on the object/class, return it. This
         # preserves access to methods and special attributes. Otherwise
         # fall back to returning values from the internal mapping.
@@ -71,9 +70,11 @@ class Context(MutableMapping[str, Any]):
 
     def __setattr__(self, name: str, value: Any) -> None:
         self._dict[name] = value
+        object.__setattr__(self, '_is_dirty', True)
 
     def __setitem__(self, name: str, value: Any) -> None:
         self._dict[name] = value
+        object.__setattr__(self, '_is_dirty', True)
 
     def __iter__(self) -> Iterator[str]:
         return iter(self._dict)
@@ -83,6 +84,21 @@ class Context(MutableMapping[str, Any]):
 
     def __delitem__(self, name: str) -> None:
         del self._dict[name]
+        object.__setattr__(self, '_is_dirty', True)
 
     def __delattr__(self, name: str) -> None:
         del self._dict[name]
+        object.__setattr__(self, '_is_dirty', True)
+
+    def is_dirty(self) -> bool:
+        return self._is_dirty
+
+    def clear_dirty(self) -> None:
+        object.__setattr__(self, '_is_dirty', False)
+
+    def load_state_dict(self, state: Mapping[str, Any]) -> None:
+        object.__setattr__(self, '_dict', dict(state))
+        object.__setattr__(self, '_is_dirty', True)
+
+    def state_dict(self) -> Mapping[str, Any]:
+        return dict(self._dict)

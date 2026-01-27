@@ -1,4 +1,3 @@
-# pyright: reportPrivateUsage=false
 import pickle
 from pathlib import Path
 from typing import Any, Mapping
@@ -6,132 +5,94 @@ from typing import Any, Mapping
 import pytest
 
 from lepel.core.checkpointing.checkpoint_manager import CheckpointManager
-from lepel.core.state.state_manager import StateManager
 
 
 class PickleFileStore:
     def save(self, obj: Any, path: Path) -> None:
-        with open(path, 'wb') as f:
+        with open(path, "wb") as f:
             pickle.dump(obj, f)
 
     def load(self, path: Path) -> Any:
-        with open(path, 'rb') as f:
+        with open(path, "rb") as f:
             return pickle.load(f)
 
 
-class SimpleState:
-    def __init__(self, value: int = 0):
-        self.value = value
-        self._dirty = True
+def test_save_full_creates_monotonic_filenames(tmp_path: Path):
+    checkpointing = CheckpointManager[Mapping[str, Any]](tmp_path, PickleFileStore())
+    path0 = checkpointing.save_full("ckpt", {"a": 1})
+    path1 = checkpointing.save_full("ckpt", {"a": 2})
 
-    def state_dict(self) -> Mapping[str, Any]:
-        return {'value': self.value}
-
-    def load_state_dict(self, state: Mapping[str, Any]) -> None:
-        self.value = state['value']
-        self._dirty = True
-
-    def state_fingerprint(self):
-        return self.value
-
-    def is_dirty(self) -> bool:
-        return self._dirty
-
-    def clear_dirty(self) -> None:
-        self._dirty = False
+    assert path0.exists() and path1.exists()
+    assert path0.name.startswith("0000_")
+    assert path1.name.startswith("0001_")
+    assert path0.name.endswith(".full.pkl")
+    assert path1.name.endswith(".full.pkl")
 
 
-def test_save_full_creates_file_and_clears_dirty(tmp_path: Path):
-    state_manager = StateManager()
-    state = SimpleState(7)
-    state_manager.track(state)
-
-    store = PickleFileStore()
-    checkpoint_manager = CheckpointManager(tmp_path, state_manager, store)
-
-    path = checkpoint_manager.save_full('test')
-    assert path.exists()
-    assert path.name.endswith('.full.pkl')
-    # dirty flags cleared after save
-    assert not state.is_dirty()
+def test_save_incremental_creates_delta_file(tmp_path: Path):
+    checkpointing = CheckpointManager[Mapping[str, Any]](tmp_path, PickleFileStore())
+    checkpoint_path = checkpointing.save_incremental("step", {"x": 1})
+    assert checkpoint_path.exists()
+    assert checkpoint_path.name.startswith("0000_")
+    assert checkpoint_path.name.endswith(".delta.pkl")
 
 
-def test_save_incremental_without_previous_stores_delta(tmp_path: Path):
-    state_manager = StateManager()
-    state = SimpleState(3)
-    state_manager.track(state)
-
-    store = PickleFileStore()
-    checkpoint_manager = CheckpointManager(tmp_path, state_manager, store)
-
-    path = checkpoint_manager.save_incremental('inc')
-    assert path.exists()
-    assert path.name.endswith('.delta.pkl')
-    # inspect contents
-    data = store.load(path)
-    assert data['kind'] == 'delta'
+def test_load_latest_none_when_no_checkpoints(tmp_path: Path):
+    checkpointing = CheckpointManager[Mapping[str, Any]](tmp_path, PickleFileStore())
+    name, snap = checkpointing.load_latest()
+    assert name is None
+    assert snap is None
 
 
-def test_save_incremental_increments_index_and_uses_previous_fingerprint(tmp_path: Path):
-    state_manager = StateManager()
-    state = SimpleState(1)
-    state_manager.track(state)
-
-    store = PickleFileStore()
-    checkpoint_manager = CheckpointManager(tmp_path, state_manager, store)
-
-    full_path = checkpoint_manager.save_full('snap')
-    assert full_path.name.startswith('0000_')
-
-    # change state and save incremental
-    state.value = 2
-    state._dirty = True
-    delta_path = checkpoint_manager.save_incremental('snap')
-    assert delta_path.name.startswith('0001_')
-
-    delta = store.load(delta_path)
-    assert delta['kind'] == 'delta'
-    # contains updated state for the object
-    assert any(d.get('value') == 2 for d in delta['state_dicts'].values())
-
-
-def test_load_latest_applies_snapshots_and_returns_stem(tmp_path: Path):
-    state_manager = StateManager()
-    state = SimpleState(0)
-    state_manager.track(state)
-
-    store = PickleFileStore()
-    checkpoint_manager = CheckpointManager(tmp_path, state_manager, store)
-
-    checkpoint_manager.save_full('base')
-    state.value = 42
-    state._dirty = True
-    checkpoint_manager.save_incremental('base')
-
-    # reset and load latest
-    state.value = 0
-    stem = checkpoint_manager.load_latest()
-    assert stem is not None
-    # value should be restored to latest (42)
-    assert state.value == 42
-
-
-def test_load_by_name_resolves_latest_matching_and_raises_if_missing(tmp_path: Path):
-    state_manager = StateManager()
-    state = SimpleState(5)
-    state_manager.track(state)
-
-    store = PickleFileStore()
-    checkpoint_manager = CheckpointManager(tmp_path, state_manager, store)
-
-    checkpoint_manager.save_full('named')
-    incremental_path = checkpoint_manager.save_incremental('named')
-
-    # load by partial name (without index) should pick the newest matching checkpoint
-    state.value = 0
-    checkpoint_manager.load('named')
-    assert state.value in (incremental_path.stem, state.value)
-
-    # request unknown name -> FileNotFoundError
+def test_load_by_name_raises_when_missing(tmp_path: Path):
+    checkpointing = CheckpointManager[Mapping[str, Any]](tmp_path, PickleFileStore())
     with pytest.raises(FileNotFoundError):
-        checkpoint_manager.load('does-not-exist')
+        checkpointing.load("does-not-exist")
+
+
+def test_load_latest_replays_full_plus_deltas_to_latest_state(tmp_path: Path):
+    """
+    load_latest reconstructs the latest state by taking the latest full
+    checkpoint and applying subsequent deltas up to the newest.
+    """
+    store = PickleFileStore()
+    checkpointing = CheckpointManager[Mapping[str, Any]](tmp_path, store)
+
+    checkpointing.save_full("base", {"a": 1, "d": {"x": 1}, "l": [1]})
+    checkpointing.save_incremental("base", {"a": 2, "d": {"y": 2}, "l": [2]})
+    checkpointing.save_incremental("base", {"a": 3})
+
+    stem, snap = checkpointing.load_latest()
+    assert stem is not None
+    assert snap is not None
+    assert snap["a"] == 3
+    assert snap["d"] == {"x": 1, "y": 2}
+    assert snap["l"] == [1, 2]
+
+
+def test_load_specific_full_checkpoint(tmp_path: Path):
+    store = PickleFileStore()
+    checkpointing = CheckpointManager[Mapping[str, Any]](tmp_path, store)
+
+    full0 = checkpointing.save_full("base", {"a": 1})
+    checkpointing.save_incremental("base", {"a": 2})
+
+    # Loading by exact stem
+    stem, snap = checkpointing.load(  # pyright: ignore[reportUnusedVariable]
+        full0.name.split('.', 1)[0]
+    )
+    assert snap["a"] == 1
+
+
+def test_load_specific_delta_checkpoint_replays_from_nearest_full(tmp_path: Path):
+    store = PickleFileStore()
+    checkpointing = CheckpointManager[Mapping[str, Any]](tmp_path, store)
+
+    checkpointing.save_full("base", {"a": 1})
+    d1 = checkpointing.save_incremental("base", {"a": 2})
+    checkpointing.save_incremental("base", {"a": 3})
+
+    # should reconstruct up to a=2
+    stem, snap = checkpointing.load(d1.name.split('.', 1)[0])
+    assert stem == d1.name.split('.', 1)[0]
+    assert snap["a"] == 2

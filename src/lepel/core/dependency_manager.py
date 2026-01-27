@@ -1,56 +1,57 @@
 # pyright: reportPrivateUsage=false
 import inspect
-from typing import Any, Callable, OrderedDict, Type, cast, get_type_hints, overload
-
-from lepel.core.context import Context
+from typing import Any, Callable, Type, TypeIs, cast, get_type_hints, overload
 
 # Denotes whether a factory houses a singleton
 _SINGLETON_ATTR = '__is_singleton__'
 _ORIGINAL_FACTORY_ATTR = '__original_factory__'
+_ProviderKey = tuple[type, str | None]
 
 
+def _is_provider_key(value: object) -> TypeIs[_ProviderKey]:
+    if not isinstance(value, tuple):
+        return False
+    if len(value) != 2:  # pyright: ignore[reportUnknownArgumentType]
+        return False
+
+    cls, name = value  # pyright: ignore[reportUnknownVariableType]
+    return isinstance(cls, type) and (isinstance(name, str) or name is None)
+
+
+# TODO: Optional types
 class DependencyManager:
-    """Dependency manager. Injects based on type and name in function signatures.
-    Supports `dependency_injector.providers` as factory methods.
-
+    """
+    A dependency manager to handle injection and resolution.
 
     Dependency resolution order:
-    1. Type
-    2. Context variables, by name (and type if annotated)
-    3. Config, by name (and type if annotated)
+    1. Type + MethodClassName.Name (if provided)
+    2. Type + Name
+    3. Type
 
-    When resolving configuration values, will also look for:
-    - `config[f'{method_class.__name__}.{dependency}']`
-    - `config[method_class.__name__][dependency]`
+    Notes
+    -----
+    - Supports `dependency_injector.providers` as factory methods.
     """
 
-    _context: Context
-    _config: dict[str, Any]
-    type_providers: OrderedDict[type, Callable[..., Any]]
+    _providers: dict[_ProviderKey, Callable[..., Any]]
 
-    def __init__(
-        self,
-        config: dict[str, Any] | None = None,
-    ) -> None:
-        self._config = config or {}
-        self._context = Context()
-        self._type_providers: OrderedDict[type, Callable[..., Any]] = OrderedDict()
-
+    def __init__(self) -> None:
+        self._providers: dict[_ProviderKey, Callable[..., Any]] = {}
         self.add_singleton(self)
-        self.add_singleton(self._context)
 
     def __contains__(self, dependency: Any) -> bool:
         if dependency is None:
             return False
 
-        # Name based resolution
-        if isinstance(dependency, str):
-            return dependency in self._config or dependency in self._context
+        if _is_provider_key(dependency):
+            return dependency in self._providers
 
-        return dependency in self._type_providers
+        return (dependency, None) in self._providers
 
     def prepare_injection(self, method: Callable[..., Any] | Type[Any]) -> dict[str, Any]:
-        """Get injectable function arguments from container and config"""
+        """
+        Get injectable function arguments from the dependency container.
+        """
         if isinstance(method, type):
             method = method.__init__
 
@@ -75,9 +76,9 @@ class DependencyManager:
 
             annotation = hints.get(name, inspect._empty)
             kwargs[name] = self.resolve(
-                name,
                 annotation,
-                method_class=method_class,  # pyright: ignore[reportArgumentType]
+                name,
+                method_class=method_class,
                 default=param.default,
             )
 
@@ -104,7 +105,11 @@ class DependencyManager:
 
     @overload
     def add_transient[T](
-        self, factory: Callable[..., T] | Type[Any], *, allow_override: bool = False
+        self,
+        factory: Callable[..., T] | Type[Any],
+        *,
+        name: str | None = None,
+        allow_override: bool = False,
     ) -> None:
         """Register a dependency in the container. Any arguments in the factory
         function will be injected by the dependency manager.
@@ -119,6 +124,8 @@ class DependencyManager:
         ----------
         factory : Callable[..., T] | Type[Any]
             Factory function for the dependency.
+        name : str | None
+            The name to associate with the dependency of this type, by default None
         allow_override : bool
             When false, raises a RuntimeError when overriding a registered type,
             by default False
@@ -135,6 +142,7 @@ class DependencyManager:
         factory: Callable[..., Any] | Type[Any],
         service_class: Type[T],
         *,
+        name: str | None = None,
         allow_override: bool = False,
     ) -> None:
         """Register a dependency in the container under the alias of service class,
@@ -150,6 +158,8 @@ class DependencyManager:
             Factory function for the dependency.
         service_class : Type[Any]
             The alias under which to register the dependency.
+        name : str | None
+            The name to associate with the dependency of this type, by default None
         allow_override : bool
             When false, raises a RuntimeError when overriding a registered type,
             by default False
@@ -166,6 +176,7 @@ class DependencyManager:
         factory: Callable[..., Any] | Type[Any],
         service_class: Type[T] | None = None,
         *,
+        name: str | None = None,
         allow_override: bool = False,
     ) -> None:
         if service_class is None:
@@ -181,15 +192,22 @@ class DependencyManager:
         if service_class is None:
             raise RuntimeError('Cannot get dependency type from factory.')
 
-        if not allow_override and service_class in self._type_providers:
+        provider_key = (service_class, name)
+        if not allow_override and provider_key in self._providers:
             raise RuntimeError(
                 f'Dependency with type "{service_class.__name__}" already registered.'
             )
 
-        self._type_providers[service_class] = self.wire(factory)
+        self._providers[provider_key] = self.wire(factory)
 
     @overload
-    def add_singleton(self, instance: Any, *, allow_override: bool = False) -> None:
+    def add_singleton(
+        self,
+        instance: Any,
+        *,
+        name: str | None = None,
+        allow_override: bool = False,
+    ) -> None:
         """Register a dependency in the container.
 
         NOTE: Instances of a generic class should pass the generic class
@@ -199,6 +217,8 @@ class DependencyManager:
         ----------
         instance : Any
             The singleton instance of the dependency.
+        name : str | None
+            The name to associate with the dependency of this type, by default None
         allow_override : bool
             When false, raises a RuntimeError when overriding a registered type,
             by default False
@@ -215,6 +235,7 @@ class DependencyManager:
         instance: Any,
         service_class: Type[T],
         *,
+        name: str | None = None,
         allow_override: bool = False,
     ) -> None:
         """Register a dependency in the container under the alias of service class,
@@ -226,6 +247,8 @@ class DependencyManager:
             The singleton instance of the dependency.
         service_class : Type[Any]
             The alias under which to register the dependency.
+        name : str | None
+            The name to associate with the dependency of this type, by default None
         allow_override : bool
             When false, raises a RuntimeError when overriding a registered type,
             by default False
@@ -242,6 +265,7 @@ class DependencyManager:
         instance: T,
         service_class: Type[T] | None = None,
         *,
+        name: str | None = None,
         allow_override: bool = False,
     ) -> None:
         def factory():
@@ -251,208 +275,77 @@ class DependencyManager:
         self.add_transient(
             factory,
             service_class=service_class or instance.__class__,
+            name=name,
             allow_override=allow_override,
         )
 
-    @overload
-    def resolve(self, dependency: str, *, default: Any = inspect.Parameter.empty) -> Any:
-        """Resolve a dependency by name.
-
-        Resolution order:
-        1. Context variables (name only)
-        2. Config (name only)
-
-        Parameters
-        ----------
-        dependency : str
-            The name of the dependency.
-        default : Any
-            A fallback value to use if the dependency is not found,
-            by default `inspect.Paramter.empty`
-
-        Returns
-        -------
-        Any
-            The resolved value or raises LookupError if not found.
-
-        Raises
-        ------
-        LookupError
-            When the dependency is not found,
-        """
-
-    @overload
-    def resolve(
-        self,
-        dependency: str,
-        *,
-        method_class: Type[Any],
-        default: Any = inspect.Parameter.empty,
-    ) -> Any:
-        """Resolve a dependency by name.
-
-        Resolution order:
-        1. Context variables (name only)
-        2. Config (name only)
-
-        When resolving configuration values, will also look for:
-        - `config[f'{method_class.__name__}.{dependency}']`
-        - `config[method_class.__name__][dependency]`
-
-        Parameters
-        ----------
-        dependency : str
-            The name of the dependency.
-        method_class: Type[Any] | None
-            the class owning the method, if dependency comes from a method signature.
-        default : Any
-            A fallback value to use if the dependency is not found,
-            by default `inspect.Paramter.empty`
-
-        Returns
-        -------
-        Any
-            The resolved value or raises LookupError if not found.
-
-        Raises
-        ------
-        LookupError
-            When the dependency is not found,
-        """
-
-    @overload
     def resolve[T](
         self,
-        dependency: str,
         annotation: Type[T],
-        *,
-        default: T = inspect.Parameter.empty,
-    ) -> T:
-        """Resolve a dependency by type and/or name.
-
-        Resolution order:
-        1. Container (type only)
-        2. Context variables
-        3. Config
-
-        Parameters
-        ----------
-        dependency : str
-            The name of the dependency.
-        annotation : Type[T]
-            The type of the dependency.
-        default : T
-            A fallback value to use if the dependency is not found,
-            by default `inspect.Paramter.empty`
-
-        Returns
-        -------
-        T
-            The resolved value or raises LookupError if not found.
-
-        Raises
-        ------
-        LookupError
-            When the dependency is not found,
-        """
-
-    @overload
-    def resolve[T](
-        self,
-        dependency: str,
-        annotation: Type[T],
-        *,
-        method_class: Type[Any],
-        default: T = inspect.Parameter.empty,
-    ) -> T:
-        """Resolve a dependency by type and/or name.
-
-        Resolution order:
-        1. Type
-        2. Context variables
-        3. Config
-
-        When resolving configuration values, will also look for:
-        - `config[f'{method_class.__name__}.{dependency}']`
-        - `config[method_class.__name__][dependency]`
-
-        Parameters
-        ----------
-        dependency : str
-            The name of the dependency.
-        annotation : Type[T]
-            The type of the dependency.
-        method_class: Type[Any] | None
-            the class owning the method, if dependency comes from a method signature.
-        default : T
-            A fallback value to use if the dependency is not found,
-            by default `inspect.Paramter.empty`
-
-        Returns
-        -------
-        T
-            The resolved value or raises LookupError if not found.
-
-        Raises
-        ------
-        LookupError
-            When the dependency is not found,
-        """
-
-    @overload
-    def resolve[T](self, dependency: Type[T], *, default: T = inspect.Parameter.empty) -> T:
-        """Resolve a dependency by type.
-
-        Parameters
-        ----------
-        dependency : Type[T]
-            The type of the dependency.
-        default : T
-            A fallback value to use if the dependency is not found,
-            by default `inspect.Paramter.empty`
-
-        Returns
-        -------
-        T
-            The resolved value or raises LookupError if not found.
-
-        Raises
-        ------
-        LookupError
-            When the dependency is not found,
-        """
-
-    def resolve(
-        self,
-        dependency: str | Type[Any],
-        annotation: Type[Any] = inspect._empty,
+        name: str | None = None,
         *,
         method_class: Type[Any] | None = None,
-        default: Any = inspect.Parameter.empty,
-    ) -> Any:
-        # Resolve by type (annotation) from container
-        if annotation and annotation is not inspect._empty:
-            provider = self._type_providers.get(annotation)
-            if provider is not None:
-                return provider()
+        default: T = inspect.Parameter.empty,
+    ) -> T:
+        """Resolve a dependency by type and/or name.
 
-        # Resolve by name
-        if isinstance(dependency, str):
-            val: Any = None
-            if dependency in self._context:
-                val = self._context[dependency]
-            else:
-                val = self._resolve_from_config(dependency, annotation, method_class)
+        Resolution order:
+        1. Type + MethodClassName.Name
+        1. Type + Name
+        2. Type
 
-            if val is not None and _same_types(val, annotation):
-                return val
+        Parameters
+        ----------
+        annotation : Type[T]
+            The type of the dependency.
+        name : str | None
+            The name of the dependency, by default None.
+        method_class: Type[Any] | None
+            the class owning the method, if dependency comes from a method signature.
+        default : T
+            A fallback value to use if the dependency is not found,
+            by default `inspect.Paramter.empty`
+
+        Returns
+        -------
+        T
+            The resolved value.
+
+        Raises
+        ------
+        LookupError
+            When the dependency is not found.
+        """
+        provider = None
+        if name and method_class:
+            provider = self._providers.get((annotation, f'{method_class.__name__}.{name}'))
+        if provider is None and name:
+            provider = self._providers.get((annotation, name))
+        if provider is None:
+            provider = self._providers.get((annotation, None))
+
+        if provider is not None:
+            return provider()
 
         if default != inspect.Parameter.empty:
             return default
 
-        raise LookupError(f'Cannot resolve dependency for parameter "{dependency}"')
+        raise LookupError(f'Cannot resolve dependency for type "{annotation}"')
 
     def throw_if_uninjectable(self, method: Callable[..., Any] | Type[Any]):
+        """
+        Throw an error if any dependencies in the method signature are not injectable.
+
+        Parameters
+        ----------
+        method : Callable[..., Any] | Type[Any]
+            The method or class to check for injectable dependencies.
+
+        Raises
+        ------
+        RuntimeError
+            When a dependency cannot be resolved.
+        """
         sig = inspect.signature(method)
         try:
             hints = get_type_hints(method)
@@ -473,108 +366,35 @@ class DependencyManager:
                 continue
 
             annotation = hints.get(name, inspect._empty)
-            if not self._can_resolve(name, annotation, method_class):
+            if not self._can_resolve(annotation, name, method_class):
                 name = f'{method.__name__}.{name}'
                 if method_class:
                     name = f'{method_class}.{name}'
                 raise RuntimeError(f'Unable to resolve dependency "{name}"')
 
-    def validate_dependencies(self) -> None:
-        """Validates that all dependencies in factory signatures
-        are present in the dependency manager."""
-        for factory in self._transients.values():
+    def validate(self) -> None:
+        """
+        Validate that all factories' dependencies are injectable.
+        """
+        for factory in self._providers.values():
+            if hasattr(factory, _SINGLETON_ATTR):
+                continue
             orig_factory: Callable[..., Any] = getattr(factory, _ORIGINAL_FACTORY_ATTR)
             self.throw_if_uninjectable(orig_factory)
 
-    # TODO: Load state via state manager instead of dependency manager.
-    def state_dict(self) -> dict[str, Any]:
-        return {
-            'config': self._config,
-            'context': self._context._dict,
-        }
-
-    def load_state_dict(self, state_dict: dict[str, Any]) -> None:
-        self._config = state_dict.get('config', {})
-        self._context = Context(state_dict.get('context', {}))
-        self.add_singleton(self._context, allow_override=True)
-
-    def _resolve_from_config(
-        self,
-        dependency: str,
-        annotation: Type[Any] | None,
-        method_class: Type[Any] | None,
-    ) -> Any | None:
-        # Resolve nested values first, giving preference to the true class over the alias (annotation)
-        if method_class:
-            class_name = method_class.__name__
-            flat_name = f'{class_name}.{dependency}'
-            if flat_name in self._config:
-                return self._config[flat_name]
-            elif class_name in self._config and dependency in self._config[class_name]:
-                return self._config[class_name][dependency]
-
-        if annotation:
-            class_name = annotation.__name__
-            flat_name = f'{class_name}.{dependency}'
-            if flat_name in self._config:
-                return self._config[flat_name]
-            elif class_name in self._config and dependency in self._config[class_name]:
-                return self._config[class_name][dependency]
-
-        if dependency in self._config:
-            return self._config[dependency]
-
-        return None
-
     def _can_resolve(
         self,
-        dependency: str | Type[Any],
-        annotation: Type[Any] = inspect._empty,
+        annotation: Type[Any],
+        name: str | None = None,
         method_class: Type[Any] | None = None,
+        default: Any = inspect.Parameter.empty,
     ) -> bool:
-        # Resolve by type (annotation) from container
-        if annotation and annotation is not inspect._empty:
-            provider = self._type_providers.get(annotation)
-            if provider is not None:
-                return True
-
-        # Resolve by name
-        if isinstance(dependency, str):
-            val: Any = None
-            if dependency in self._context:
-                val = self._context[dependency]
-            else:
-                val = self._resolve_from_config(dependency, annotation, method_class)
-
-            return val is not None and _same_types(val, annotation)
-
-        return False
-
-    @property
-    def context(self) -> Context:
-        return self._context
-
-    @property
-    def _singletons(self) -> dict[Type[Any], Any]:
-        singletons: OrderedDict[Type[Any], Any] = OrderedDict()
-
-        for cls, factory in self._type_providers.items():
-            if hasattr(factory, _SINGLETON_ATTR):
-                singletons[cls] = factory()
-
-        return singletons
-
-    @property
-    def _transients(self) -> dict[Type[Any], Callable[..., Any]]:
-        return {
-            cls: factory
-            for cls, factory in self._type_providers.items()
-            if not hasattr(factory, _SINGLETON_ATTR)
-        }
-
-
-def _same_types(a: Any, b: Type[Any]) -> bool:
-    return b is inspect._empty or type(a) == b or issubclass(a.__class__, b)
+        return (
+            (annotation, name) in self._providers
+            or (annotation, None) in self._providers
+            or (method_class and (annotation, f'{method_class.__name__}.{name}') in self._providers)
+            or (default != inspect.Parameter.empty)
+        )
 
 
 def _try_third_party_di_type(factory: Callable[..., Any]) -> Type[Any] | None:

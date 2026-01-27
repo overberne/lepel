@@ -14,6 +14,8 @@ pip install git+https://github.com/overberne/lepel
 
 - DependencyManager: simple DI container for wiring factories and singletons, resolving by type or name and holding runtime config/context variables. Stores/restores state for singletons if they match the `Stateful` protocol.
 - PipelineStep: abstract base for pipeline steps. Steps implement `run(self, ...)` and receive injected args (e.g. `output_dir`, `pipeline_step`, `dependencies`).
+- Checkpoints are made after every pipeline step.
+  - Names follow the template `{step index}_{pipeline step name}`
 - checkpoint: small typed dict + helpers (save/load) that serialize the dependency manager state via cloudpickle.
 - run_pipeline: runner that loads config, applies overrides, wires a `DependencyManager`, copies config into `output_dir`, and executes pipeline steps in order. Checkpoints can be saved and resumed.
 - run_step: injects dependencies into step.run(...) and stores results for checkpointing.
@@ -21,14 +23,14 @@ pip install git+https://github.com/overberne/lepel
 ## Quickstart
 
 - Write a pipeline recipe that registers dependencies on a `DependencyManager` and imports/uses `PipelineStep` subclasses. Example sketch:
-
+<!-- TODO: Update with state manager -->
 ```python
 from lepel import DependencyManager, PipelineStep, checkpoint, run_pipeline, run_step
 from my_library import MyPipelineStep
 
 def recipe(dependencies: DependencyManager):
     # Preamble: register factories/singletons on dependencies
-    dependencies.register(...)
+    dependencies.add_singleton(...)
     # Pipeline body
     result = run_step(MyPipelineStep(**options))
     checkpoint('first')
@@ -50,11 +52,12 @@ if __name__ == '__main__':
 
 ### API Reference (core symbols)
 
-- `lepel.DependencyManager` — register factories (`register`), register singletons (`register_singleton`), resolve dependencies (`resolve`), update context (`update_context_variables`) and persist state (`state_dict` / `load_state_dict`).
+- `lepel.DependencyManager` — register factories (`add_transient`), register singletons (`add_singleton`), resolve dependencies (`resolve`), update context (`update_context_variables`) and persist state (`state_dict` / `load_state_dict`).
 - `lepel.PipelineStep` — base class for steps; implement `run`.
 - `lepel.checkpoint` (function), `lepel.Checkpoint` (class) and functions `save_checkpoint`, `load_checkpoint` in `lepel.checkpoint`.
 - `lepel.run_pipeline(...)` — runs a pipeline callable with config, DI and checkpoint support.
 - `lepel.default_argparser()` and `lepel.cli_args_to_config()` — small CLI helpers.
+<!-- TODO: Update -->
 
 ### Notes
 

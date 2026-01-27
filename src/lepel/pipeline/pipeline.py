@@ -6,9 +6,9 @@ import warnings
 from logging import getLogger
 from os import PathLike
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Mapping, cast
 
-from lepel.core import CheckpointManager, DependencyManager, PipelineStep, StateManager
+from lepel.core import CheckpointManager, Context, DependencyManager, PipelineStep, StateManager
 from lepel.core.state import Fingerprints
 from lepel.extensions.cloudpickle_file_store import CloudpickleFileStore
 from lepel.pipeline._checkpoint import Checkpoint
@@ -101,12 +101,19 @@ def run_pipeline(
             _config_repr(config_override),
         )
 
+    # Setup state, checkpointing, dependencies, and context
+    context = Context()
+    context.output_dir = output_dir
+    context.pipeline_name = _get_pipeline_name()
     state = StateManager()
+    state.track(context)
     checkpoint_dir = output_dir / _CHECKPOINTS_RELPATH
     checkpointing = CheckpointManager[StateSnapshot](checkpoint_dir, CloudpickleFileStore())
-    dependencies = DependencyManager(config)
-    dependencies.context.output_dir = output_dir
-    dependencies.context.pipeline_name = _get_pipeline_name()
+    dependencies = DependencyManager()
+    _add_flat_config_items_to_dependencies(dependencies, config)
+    dependencies.add_singleton(config, name='config')
+    dependencies.add_singleton(config, Mapping[str, Any], name='config')
+    dependencies.add_singleton(context)
     dependencies.add_singleton(state)
     dependencies.add_singleton(checkpointing)
 
@@ -154,9 +161,9 @@ def run_pipeline(
                     checkpoint_reached = True
                 elif checkpoint_reached:
                     logger.info('%04d Creating checkpoint "%s"', current_step, self.name)
-                    state_snapshot, fingerprints = state.snapshot()
+                    state_delta, fingerprints = state.snapshot()
                     snapshot: StateSnapshot = {
-                        'state_dicts': state_snapshot,
+                        'state_dicts': state_delta,
                         'fingerprints': fingerprints,
                         'step_results': results,
                     }
@@ -167,24 +174,26 @@ def run_pipeline(
 
             current_step += 1
             if not checkpoint_reached:
-                if current_step >= len(results):
+                if current_step > len(results):
                     raise RuntimeError(
                         f'Checkpoint "{checkpoint_name}" did not contain enough stored results'
                     )
                 return results[current_step - 1]
             else:
                 step_name = self.__class__.__name__
-                dependencies.context.pipeline_step = step_name
+                context.pipeline_step = step_name
 
                 logger.info('%04d %s: Started', current_step, step_name)
                 result = self.run(**dependencies.prepare_injection(self.run))
-                state_snapshot, fingerprints = state.delta(fingerprints)
-                delta: StateSnapshot = {
-                    'state_dicts': state_snapshot,
-                    'fingerprints': fingerprints,
-                    'step_results': [result],
-                }
-                checkpointing.save_incremental(step_name, delta)
+                state_delta, fingerprints = state.delta(fingerprints)
+                checkpointing.save_incremental(
+                    step_name,
+                    {
+                        'state_dicts': state_delta,
+                        'fingerprints': fingerprints,
+                        'step_results': [result],
+                    },
+                )
 
                 logger.info('%04d %s: Finished', current_step, step_name)
                 results.append(result)
@@ -192,9 +201,8 @@ def run_pipeline(
 
         return new_run_step
 
-    # unwrap_pipeline_steps = _wrap_subclasses_init(PipelineStep, init_wrapper)
     unwrap_pipeline_steps = wrap_subclasses_method(PipelineStep, '__run_step__', run_step_wrapper)
-    logger.info('Initiating pipeline...')
+    logger.info('Running pipeline...')
     recipe(**dependencies.prepare_injection(recipe))
     logger.info('Pipeline finished!')
     unwrap_pipeline_steps()
@@ -241,7 +249,7 @@ def _config_repr(config_overrides: dict[str, Any]) -> str:
 
 def _validate_dependencies(dependencies: DependencyManager) -> None:
     try:
-        dependencies.validate_dependencies()
+        dependencies.validate()
     except RuntimeError as e:
         warnings.warn(str(e), RuntimeWarning, stacklevel=3)
 
@@ -250,3 +258,20 @@ def _validate_dependencies(dependencies: DependencyManager) -> None:
             dependencies.throw_if_uninjectable(cls.run)
         except RuntimeError as e:
             warnings.warn(str(e), RuntimeWarning, stacklevel=3)
+
+
+def _add_flat_config_items_to_dependencies(
+    dependencies: DependencyManager,
+    config: dict[str, Any],
+    prefix: str = '',
+) -> None:
+
+    for key, value in config.items():
+        if isinstance(value, dict):
+            _add_flat_config_items_to_dependencies(
+                dependencies,
+                config=cast(dict[str, Any], value),
+                prefix=f'{prefix}{key}.',
+            )
+        else:
+            dependencies.add_singleton(value, name=f'{prefix}{key}')

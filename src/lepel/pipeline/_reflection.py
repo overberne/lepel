@@ -1,7 +1,7 @@
 import inspect
 from typing import Any, Callable, Type
 
-from lepel.core.pipeline_step import PipelineStep
+from lepel.core import PipelineStep
 
 
 def all_subclasses[T](cls: Type[T]) -> list[Type[T]]:

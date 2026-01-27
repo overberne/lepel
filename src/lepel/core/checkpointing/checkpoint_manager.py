@@ -106,12 +106,12 @@ class CheckpointManager[TSnapshot: Mapping[str, Any]]:
 
         snapshot_history = (
             self._file_store.load(path)
-            for path in checkpoint_paths
+            for path in reversed(checkpoint_paths)
             if int(path.stem.split('_', 1)[0]) >= nearest_full_index
         )
 
         current_snapshot = self._replay_snapshots(snapshot_history)
-        return checkpoint_paths[0].stem, current_snapshot
+        return _stem(checkpoint_paths[0]), current_snapshot
 
     def load(self, name: str) -> tuple[str, TSnapshot]:
         """
@@ -143,7 +143,7 @@ class CheckpointManager[TSnapshot: Mapping[str, Any]]:
 
         if checkpoint_path.suffix == '.full.pkl':
             snapshot = self._file_store.load(checkpoint_path)
-            return checkpoint_path.stem, snapshot
+            return _stem(checkpoint_path), snapshot
 
         nearliest_full_index = self._nearest_full_checkpoint_index(checkpoint_path)
         if nearliest_full_index is None:
@@ -154,11 +154,11 @@ class CheckpointManager[TSnapshot: Mapping[str, Any]]:
         snapshot_index = int(checkpoint_path.stem.split('_', 1)[0])
         snapshot_history = (
             self._file_store.load(p)
-            for p in self._all_checkpoint_paths_descending()
+            for p in reversed(self._all_checkpoint_paths_descending())
             if nearliest_full_index <= int(p.stem.split('_', 1)[0]) <= snapshot_index
         )
         current_snapshot = self._replay_snapshots(snapshot_history)
-        return checkpoint_path.stem, current_snapshot
+        return _stem(checkpoint_path), current_snapshot
 
     def _all_checkpoint_paths_descending(self) -> list[Path]:
         """
@@ -267,7 +267,7 @@ class CheckpointManager[TSnapshot: Mapping[str, Any]]:
             index = int(path.stem.split('_', 1)[0])
             if index > target_index:
                 continue
-            if path.suffix == '.full.pkl':
+            if tuple(path.suffixes) == ('.full', '.pkl'):
                 return index
 
         return None
@@ -301,12 +301,12 @@ class CheckpointManager[TSnapshot: Mapping[str, Any]]:
         """
         Replay a sequence of state snapshots to reconstruct the latest state.
 
-        Snapshots must be provided in reverse chronological order (latest first).
+        Snapshots must be provided in chronological order (earliest first).
 
         Parameters
         ----------
         snapshots : iterable of TSnapshot
-            Snapshots to replay in reverse chronological order (latest first).
+            Snapshots to replay in chronological order (earliest first).
 
         Returns
         -------
@@ -361,3 +361,7 @@ class CheckpointManager[TSnapshot: Mapping[str, Any]]:
                     tmp.unlink()
                 except OSError:
                     pass
+
+
+def _stem(path: Path) -> str:
+    return path.name.split('.', 1)[0]

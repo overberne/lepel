@@ -38,8 +38,10 @@ def run_pipeline(
 
     The ``recipe`` callable defines a sequence of pipeline steps and a
     preamble where dependencies can be registered on the provided
-    :class:`~lepel.dependency_manager.DependencyManager`. This function sets up
-    configuration, the dependency manager, optional checkpoint restoration,
+    :class:`~lepel.core.DependencyManager`; state can be
+    tracked using :class:`~lepel.core.StateManager` which will be saved in
+    checkpoints. This function sets up configuration, the dependency manager,
+    optional checkpoint restoration, and a set of context variables,
     and then executes the pipeline. Pipeline step classes that inherit from
     :class:`PipelineStep` are detected automatically and their constructors are
     wrapped so the pipeline runner can control execution order, validation,
@@ -67,8 +69,7 @@ def run_pipeline(
     checkpoint : str | None, optional
         If provided, a checkpoint file name or the special value ``'latest'``.
         When set, the runner will attempt to load the checkpoint and resume
-        execution from the next step after the matching :class:`Checkpoint`
-        step with the same name.
+        execution from the next step after the matching step with the same name.
     save_git : bool, optional
         When true, saves the git status to a `/git` subdirectory.
     auto_subdirs : bool, optional

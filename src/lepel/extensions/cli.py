@@ -4,6 +4,25 @@ from typing import Any
 
 
 def default_argparser(description: str = 'Lepel experiment pipeline') -> argparse.ArgumentParser:
+    """
+    Creates a default argument parser for Lepel pipelines.
+
+    The default parser includes the following arguments:
+    - ``-o --output-dir [Path]``: Path to the output directory.
+    - ``-c --config [Path]``: Optional path to a configuration file.
+    - ``-k --checkpoint [str]``: Optional name of the starting checkpoint, or "latest".
+    - ``-g --save-git``: Optional flag to log the git status.
+
+    Parameters
+    ----------
+    description : str
+        Description for the argument parser.
+
+    Returns
+    -------
+    argparse.ArgumentParser
+        Configured argument parser.
+    """
     parser = argparse.ArgumentParser(description=description)
     parser.add_argument(
         '-o', '--output-dir', type=Path, default='.', help='Path to the output directory.'
@@ -33,6 +52,23 @@ def default_argparser(description: str = 'Lepel experiment pipeline') -> argpars
 
 
 def cli_args_to_config(args: list[str]) -> dict[str, Any]:
+    """Converts a list of CLI arguments into a configuration dictionary.
+
+    Supports arguments in the form of `--key=value` or `--key value`.
+    Flags without values are interpreted as boolean `True`.
+    The function attempts to convert values to `int`, `float`, or `bool`
+    where appropriate; otherwise, values are treated as strings.
+
+    Parameters
+    ----------
+    args : list[str]
+        List of command-line arguments.
+
+    Returns
+    -------
+    dict[str, Any]
+        Configuration dictionary parsed from the CLI arguments.
+    """
     parsed: dict[str, Any] = {}
 
     i = 0

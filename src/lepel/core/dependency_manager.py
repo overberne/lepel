@@ -31,7 +31,6 @@ def _is_provider_key(value: object) -> TypeIs[_ProviderKey]:
     return isinstance(cls, type) and (isinstance(name, str) or name is None)
 
 
-# TODO: Optional types
 class DependencyManager:
     """
     A dependency manager to handle injection and resolution.

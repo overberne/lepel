@@ -20,7 +20,7 @@ class CheckpointManager[TSnapshot: Mapping[str, Any]]:
 
     Parameters
     ----------
-    dir : str or pathlib.Path
+    checkpoint_dir : str or pathlib.Path
         Directory in which checkpoint files are stored.
     file_store : CheckpointFileStore
         Backend used to serialize and deserialize checkpoint data.
@@ -38,8 +38,7 @@ class CheckpointManager[TSnapshot: Mapping[str, Any]]:
         """
         Save an incremental (delta) checkpoint.
 
-        The delta is computed relative to the most recent checkpoint, if one
-        exists.
+        The delta should be computed relative to the most recent checkpoint.
 
         Parameters
         ----------
@@ -85,9 +84,9 @@ class CheckpointManager[TSnapshot: Mapping[str, Any]]:
         """
         Load the most recent checkpoint.
 
-        All checkpoints are applied in reverse chronological order to reconstruct
-        the latest state. This means the latest full checkpoint and any subsequent
-        delta checkpoints are loaded.
+        All checkpoints are applied in reverse chronological order to
+        reconstruct the latest state. This means the latest full checkpoint and
+        any subsequent delta checkpoints are loaded.
 
         Returns
         -------
@@ -350,8 +349,9 @@ class CheckpointManager[TSnapshot: Mapping[str, Any]]:
             Destination file path.
         """
         path.parent.mkdir(parents=True, exist_ok=True)
-        with tempfile.NamedTemporaryFile(dir=str(path.parent), delete=False) as tf:
-            tmp = Path(tf.name)
+        with tempfile.NamedTemporaryFile(dir=str(path.parent), delete=False) as file:
+            tmp = Path(file.name)
+
         try:
             file_store.save(obj, tmp)
             tmp.replace(path)

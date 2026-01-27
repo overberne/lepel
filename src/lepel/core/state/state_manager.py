@@ -14,9 +14,9 @@ class StateManager:
     """
     Coordinate state tracking, snapshotting, and restoration for stateful objects.
 
-    The state manager maintains an ordered registry of tracked objects and
-    provides facilities for producing full and incremental state snapshots,
-    as well as restoring state from such snapshots.
+    The state manager maintains an registry of tracked objects and provides
+    facilities for producing full and incremental state snapshots, as well as
+    restoring state from such snapshots.
     """
 
     _tracked_objects: dict[str, list[Stateful]]
@@ -113,17 +113,6 @@ class StateManager:
                 if isinstance(obj, Fingerprintable)
             },
         )
-
-    # def get_fingerprints(self) -> Fingerprints:
-    #     """
-    #     Get the current fingerprints of all tracked Fingerprintable objects.
-
-    #     Returns
-    #     -------
-    #     Fingerprints
-    #         Current fingerprints of tracked objects.
-    #     """
-    #     return
 
     def clear_dirty_flags(self) -> None:
         """

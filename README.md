@@ -1,64 +1,293 @@
-# LEarning Pipeline recipE Library (lepel)
+# Lepel - Learning Pipeline Recipe Library
 
-Minimal utilities to author, run and resume single-machine experiment pipelines.
+**Lepel** is a tiny, single-machine pipeline runner for experiment-style workflows: define a "recipe" that wires dependencies, runs ordered steps, and automatically persists/resumes state via checkpoints.
+
+It's designed for:
+
+- Reproducible local experiments (config captured in the output directory)
+- Interruptible pipelines (resume from checkpoints)
+- Lightweight dependency injection (DI) without a framework
+
+---
 
 ## Installation
 
-- Install from source for development:
+### From source (development)
 
 ```bash
 pip install git+https://github.com/overberne/lepel
 ```
 
-## Concepts
+### Optional dependencies
 
-- DependencyManager: simple DI container for wiring factories and singletons, resolving by type or name and holding runtime config/context variables. Stores/restores state for singletons if they match the `Stateful` protocol.
-- PipelineStep: abstract base for pipeline steps. Steps implement `run(self, ...)` and receive injected args (e.g. `output_dir`, `pipeline_step`, `dependencies`).
-- Checkpoints are made after every pipeline step.
-  - Names follow the template `{step index}_{pipeline step name}`
-- checkpoint: small typed dict + helpers (save/load) that serialize the dependency manager state via cloudpickle.
-- run_pipeline: runner that loads config, applies overrides, wires a `DependencyManager`, copies config into `output_dir`, and executes pipeline steps in order. Checkpoints can be saved and resumed.
-- run_step: injects dependencies into step.run(...) and stores results for checkpointing.
+Lepel supports YAML/TOML configs when the corresponding libraries are installed:
+
+- YAML: `PyYAML`
+- TOML: `toml` (not tomllib included with Python 3.11+, which (currently) has no writing capabilities)
+
+---
+
+## Core ideas
+
+### Pipeline recipe
+
+A **recipe** is a normal Python callable. Lepel injects its arguments from the dependency container (including config values). Inside the recipe you:
+
+1. **Register dependencies** (singletons/transients)
+1. **Track stateful objects** for checkpointing
+1. **Run steps** using `run_step(...)`
+1. Optionally add explicit checkpoints using `checkpoint("name")` (incremental checkpoints are automatically created after each step)
+
+### Dependency injection
+
+`DependencyManager` is a simple DI container that can:
+
+- register factories (`add_transient`) and instances (`add_singleton`)
+- resolve dependencies by type and/or name
+- inject arguments into callables by inspecting type annotations
+
+#### Resolution order
+
+1. `(Type, "MethodClassName.param_name")` (class-specific binding to help prevent name collisions in configuration)
+1. `(Type, "param_name")`
+1. `(Type, None)` (type-only)
+
+### Pipeline steps
+
+A pipeline step is a `PipelineStep` subclass that implements `run(...)`. Lepel injects parameters of `run(...)` just like recipe parameters.
+
+### Checkpointing & resuming
+
+- Lepel writes checkpoints into: `output_dir/checkpoints/`
+- Filenames are monotonic and include step index + logical name:
+  - step checkpoints: `0000_StepClassName.delta.pkl`
+  - explicit checkpoints: `0003_mid.full.pkl` (created by `checkpoint("mid")`)
+- Resuming:
+  - `checkpoint="latest"` restores the newest reconstructible state
+  - `checkpoint="<stem or name>"` loads a specific checkpoint
+- What's stored
+- tracked stateful objects (via `StateManager`)
+- fingerprints/dirty flags (for incremental checkpointing)
+- step results (so resumed runs can skip already-computed work)
+
+Serialization is done with `cloudpickle`.
+
+---
 
 ## Quickstart
 
-- Write a pipeline recipe that registers dependencies on a `DependencyManager` and imports/uses `PipelineStep` subclasses. Example sketch:
-<!-- TODO: Update with state manager -->
+### 1. Define stateful objects (optional but recommended)
+
+If you want objects to be checkpointed/resumed, implement the `Stateful` protocol:
+
+- `state_dict() -> Mapping[str, Any]`
+- `load_state_dict(state) -> None`
+
+For efficient incremental checkpoints, optionally implement:
+
+- `DirtyTrackable` (`is_dirty`, `clear_dirty`)
+- `Fingerprintable` (`state_fingerprint`)
+
 ```python
-from lepel import DependencyManager, PipelineStep, checkpoint, run_pipeline, run_step
-from my_library import MyPipelineStep
+from typing import Mapping, Any
 
-def recipe(dependencies: DependencyManager):
-    # Preamble: register factories/singletons on dependencies
-    dependencies.add_singleton(...)
-    # Pipeline body
-    result = run_step(MyPipelineStep(**options))
-    checkpoint('first')
-    run_step(MyPipelineStep(**options))
+class Counter:
+    def __init__(self) -> None:
+        self.value = 0
+        self._dirty = True
 
-if __name__ == '__main__':
-    run_pipeline(recipe, output_dir='output', config_file='config.yaml')
+    def inc(self, by: int) -> None:
+        self.value += by
+        self._dirty = True
+
+    # Stateful
+    def state_dict(self) -> Mapping[str, Any]:
+        return {"value": self.value}
+
+    def load_state_dict(self, state: Mapping[str, Any]) -> None:
+        self.value = state["value"]
+        self._dirty = True
+
+    # DirtyTrackable (optional, speeds up delta checkpoints)
+    def is_dirty(self) -> bool:
+        return self._dirty
+
+    def clear_dirty(self) -> None:
+        self._dirty = False
 ```
 
-### CLI helpers
+### 2. Write steps
 
-- `default_argparser()` provides a standard argparse ArgumentParser with `--output-dir`, `--config` and `--checkpoint`.
-- `cli_args_to_config(args: list[str])` converts `--key=value` or `--key value` style args into a dict with typed values (ints, floats, booleans).
+```python
+from typing import Any, Mapping
+from lepel import PipelineStep
 
-### Configuration
+class MyStep(PipelineStep[int]):
+    def __init__(self, by: int) -> None:
+        self.by = by
 
-- `lepel.config.load_config(path)` / `save_config(mapping, path)` support `.yaml/.yml`, `.json` and `.toml` (requires PyYAML and toml as needed).
-- Config override files named `config_override.*` are supported and merged with CLI overrides.
+    def run(self, counter: Counter) -> int:
+        counter.inc(self.by)
+        return counter.value
+```
 
-### API Reference (core symbols)
+### 3. Write a recipe and run it
 
-- `lepel.DependencyManager` — register factories (`add_transient`), register singletons (`add_singleton`), resolve dependencies (`resolve`), update context (`update_context_variables`) and persist state (`state_dict` / `load_state_dict`).
-- `lepel.PipelineStep` — base class for steps; implement `run`.
-- `lepel.checkpoint` (function), `lepel.Checkpoint` (class) and functions `save_checkpoint`, `load_checkpoint` in `lepel.checkpoint`.
-- `lepel.run_pipeline(...)` — runs a pipeline callable with config, DI and checkpoint support.
-- `lepel.default_argparser()` and `lepel.cli_args_to_config()` — small CLI helpers.
-<!-- TODO: Update -->
+```python
+from pathlib import Path
+from lepel import Context, DependencyManager, StateManager, checkpoint, run_pipeline, run_step
 
-### Notes
+def recipe(
+    context: Context,
+    dependencies: DependencyManager,
+    state: StateManager,
+    by: int,  # injected from config key "by"
+) -> None:
+    counter = Counter()
+    dependencies.add_singleton(counter)
+    state.track(counter)
+    print(context.output_dir)  # Output directory is available from context
 
-- Checkpoint files are pickled with `cloudpickle` — ensure compatibility when loading across Python/package versions.
+    run_step(MyStep(by))
+    checkpoint("mid")
+    run_step(MyStep(1))
+
+
+if __name__ == "__main__":
+    run_pipeline(
+        recipe,
+        output_dir="output",
+        config_file="config.yaml",
+        save_git=True,
+        by=2,  # optional override (also works via config / CLI parsing helper)
+    )
+```
+
+---
+
+## Configuration
+
+### Supported formats
+
+Use `lepel.pipeline._config.load_config/save_config` via the `run_pipeline`:
+
+- `.yaml` / `.yml` (requires `PyYAML`)
+- `.json`
+- `.toml` (requires `toml`)
+
+### How config is used
+
+- Config is loaded and copied into the `output_dir`
+- Any keyword args passed to `run_pipeline(..., **overrides)` override config values
+- A `config_override.*` file may be discovered alongside the main script and merged
+- The full config dict is registered into DI as:
+  - `config` (named singleton, `dict`)
+  - `config` (named singleton, `Mapping[str, Any]`)
+
+### Flat config injection
+
+Top-level and nested config values are also registered as named singletons:
+
+- `{"lr": 0.1}` -> injectable as `lr: float`
+- `{"train": {"epochs": 10}}` -> injectable as `train.epochs: int` (name-based)
+  - See method class name resolution in the dependency manager.
+  - OR, access the config directly as injectable as `config: Mapping[str, Any]`
+
+This makes it easy to inject individual settings directly into recipes/steps, and handle any name collisions with global / local configuration.
+
+---
+
+## CLI helpers
+
+Lepel provides small helpers; you build the actual CLI wrapper yourself.
+
+`default_argparser()`
+Creates an `argparse.ArgumentParser` with:
+
+- `-o` / `--output-dir`
+- `-c` / `--config`
+- `-k` / `--checkpoint` (name or `"latest"`)
+- `-g` / `--save-git`
+
+`cli_args_to_config(args: list[str])`
+Parses extra `--key=value` / `--key value` arguments into a dict and tries to type values
+`(int, float, bool)`, otherwise keeps strings.
+
+Example:
+
+```python
+from lepel.extensions.cli import default_argparser, cli_args_to_config
+from lepel import run_pipeline
+
+parser = default_argparser()
+args, extras = parser.parse_known_args()
+
+overrides = cli_args_to_config(extras)
+
+run_pipeline(
+    recipe,
+    output_dir=args.output_dir,
+    config_file=args.config,
+    checkpoint=args.checkpoint,
+    save_git=args.save_git,
+    **overrides,
+)
+```
+
+---
+
+## API reference (public)
+
+Imported from `lepel`:
+
+### Pipeline execution
+
+- `run_pipeline(recipe, *, output_dir, config_file=None, checkpoint=None, save_git=False, auto_subdirs=True, **overrides)`
+- `run_step(step)`
+- `checkpoint(name)`
+
+### Core types
+
+- `PipelineStep` - base class for steps (implement `run`)
+- `DependencyManager` - DI container
+- `Context` - attribute/dict backed runtime context (tracked by default)
+- `StateManager` - tracks Stateful objects and produces snapshots/deltas
+- `Stateful`, `DirtyTrackable`, `Fingerprintable` - state protocols
+
+### Checkpointing internals
+
+- `CheckpointManager` - manages `.full.pkl` and `.delta.pkl` files
+- `CheckpointFileStore` - protocol for persistence backends
+- `CloudpickleFileStore` - default store used by the pipeline runner
+
+---
+
+## Output layout
+
+A typical run directory looks like:
+
+```bash
+output/
+  config.yaml
+  config_override.yaml
+  your_script.py
+  checkpoints/
+    0000_StepAdd.delta.pkl
+    0001_mid.full.pkl
+    0002_StepAdd.delta.pkl
+  git/                      # if save_git=True
+    changes.txt
+    branch.main
+    commit.<hash>
+    changes/...
+```
+
+If `auto_subdirs=True` (default), Lepel creates a unique subdirectory: `YYYYMMDD-HHMMSS-<slug>` under `output_dir`.
+
+---
+
+## Notes & caveats
+
+- Checkpoints use `cloudpickle`. Loading across different Python versions or dependency versions may fail or produce subtle issues, so treat checkpoints as best-effort, same-environment artifacts.
+- Dependency injection relies on type annotations (and parameter names for named bindings). Unannotated parameters typically won't be injectable.
+- The runner wraps `PipelineStep` subclasses dynamically; step classes must be imported/defined before they are instantiated.

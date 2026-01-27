@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "lepel"
 version = "0.0.0"
-description = "Minimal utilities to author, run and resume single-machine experiment pipelines."
+description = "Lepel is a tiny, single-machine pipeline runner for experiment-style workflows: define a \"recipe\" that wires dependencies, runs ordered steps, and automatically persists/resumes state via checkpoints."
 readme = "README.md"
 requires-python = ">=3.13"
 classifiers = [
@@ -27,6 +27,7 @@ dependencies = [
     'gitpython ~=3.1.46',
     'pyyaml ~=6.0.3',
     'toml ~=0.10.2',
+    'pathspec ~=1.0.3',
 ]
 
 [tool.setuptools.packages.find]

@@ -242,7 +242,7 @@ Imported from `lepel`:
 
 ### Pipeline execution
 
-- `run_pipeline(recipe, *, output_dir, config_file=None, checkpoint=None, save_git=False, auto_subdirs=True, **overrides)`
+- `run_pipeline(recipe, *, output_dir, config_file=None, checkpoint=None, save_git=False, auto_checkpoint=True, auto_subdirs=True, **overrides)`
 - `run_step(step)`
 - `checkpoint(name)`
 
@@ -272,9 +272,10 @@ output/
   config_override.yaml
   your_script.py
   checkpoints/
-    0000_StepAdd.delta.pkl
-    0001_mid.full.pkl
-    0002_StepAdd.delta.pkl
+    0000_initial.full.pkl
+    0001_StepAdd.delta.pkl
+    0002_mid.full.pkl
+    0003_StepAdd.delta.pkl
   git/                      # if save_git=True
     changes.txt
     branch.main

@@ -31,6 +31,7 @@ def run_pipeline(
     config_file: str | PathLike[str] | Path | None = None,
     checkpoint: str | None = None,
     save_git: bool = False,
+    auto_checkpoint: bool = True,
     auto_subdirs: bool = True,
     **config_override: Any,
 ) -> None:
@@ -72,6 +73,8 @@ def run_pipeline(
         execution from the next step after the matching step with the same name.
     save_git : bool, optional
         When true, saves the git status to a `/git` subdirectory.
+    auto_checkpoint : bool, optional
+        When true, automatically creates a checkpoint after each pipeline step.
     auto_subdirs : bool, optional
         When true, stores the run in a subdirectory `YYYYMMdd-HHmmss-{slug1}-{slug2}`
     **config_override : Any
@@ -157,14 +160,27 @@ def run_pipeline(
             if current_step == 0:
                 _validate_dependencies(dependencies)
 
+                # Save initial state as a checkpoint
+                if auto_checkpoint and checkpoint_reached:
+                    state_dicts, fingerprints = state.snapshot()
+                    snapshot: StateSnapshot = {
+                        'state_dicts': state_dicts,
+                        'fingerprints': fingerprints,
+                        'step_results': results,
+                    }
+                    checkpointing.save_full(
+                        'initial',
+                        snapshot,
+                    )
+
             if isinstance(self, Checkpoint):
                 if f'{current_step:04d}_{self.name}' == checkpoint_name:
                     checkpoint_reached = True
                 elif checkpoint_reached:
                     logger.info('%04d Creating checkpoint "%s"', current_step, self.name)
-                    state_delta, fingerprints = state.snapshot()
+                    state_dicts, fingerprints = state.snapshot()
                     snapshot: StateSnapshot = {
-                        'state_dicts': state_delta,
+                        'state_dicts': state_dicts,
                         'fingerprints': fingerprints,
                         'step_results': results,
                     }
@@ -183,18 +199,19 @@ def run_pipeline(
             else:
                 step_name = self.__class__.__name__
                 context.pipeline_step = step_name
-
                 logger.info('%04d %s: Started', current_step, step_name)
                 result = self.run(**dependencies.prepare_injection(self.run))
-                state_delta, fingerprints = state.delta(fingerprints)
-                checkpointing.save_incremental(
-                    step_name,
-                    {
-                        'state_dicts': state_delta,
-                        'fingerprints': fingerprints,
-                        'step_results': [result],
-                    },
-                )
+
+                if auto_checkpoint:
+                    state_delta, fingerprints = state.delta(fingerprints)
+                    checkpointing.save_incremental(
+                        step_name,
+                        {
+                            'state_dicts': state_delta,
+                            'fingerprints': fingerprints,
+                            'step_results': [result],
+                        },
+                    )
 
                 logger.info('%04d %s: Finished', current_step, step_name)
                 results.append(result)

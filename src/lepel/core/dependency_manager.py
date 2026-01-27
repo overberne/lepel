@@ -1,10 +1,23 @@
 # pyright: reportPrivateUsage=false
 import inspect
-from typing import Any, Callable, Type, TypeIs, cast, get_type_hints, overload
+import types
+from typing import (
+    Any,
+    Callable,
+    Type,
+    TypeIs,
+    Union,
+    cast,
+    get_args,
+    get_origin,
+    get_type_hints,
+    overload,
+)
 
 # Denotes whether a factory houses a singleton
 _SINGLETON_ATTR = '__is_singleton__'
 _ORIGINAL_FACTORY_ATTR = '__original_factory__'
+_NoneType = type(None)
 _ProviderKey = tuple[type, str | None]
 
 
@@ -75,6 +88,7 @@ class DependencyManager:
                 continue
 
             annotation = hints.get(name, inspect._empty)
+            annotation = _strip_optional(annotation)
             kwargs[name] = self.resolve(
                 annotation,
                 name,
@@ -366,6 +380,7 @@ class DependencyManager:
                 continue
 
             annotation = hints.get(name, inspect._empty)
+            annotation = _strip_optional(annotation)
             if not self._can_resolve(annotation, name, method_class):
                 name = f'{method.__name__}.{name}'
                 if method_class:
@@ -431,6 +446,30 @@ def _get_callable_return_type(func: Callable[..., Any]) -> Type[Any] | None:
     """
     try:
         hints = get_type_hints(func)  # type: ignore
-        return hints.get('return')
+        return _strip_optional(hints.get('return'))
     except (TypeError, ValueError) as ex:
         raise RuntimeError('Cannot get dependency type from factory.') from ex
+
+
+def _strip_optional(annotation: Any) -> Any:
+    """
+    If annotation is Optional[T] / T | None, return T.
+    If annotation is a union with None (e.g. A | B | None), return the union without None.
+    Otherwise return annotation unchanged.
+    """
+    origin = get_origin(annotation)
+    if origin not in (types.UnionType, Union):  # T | U syntax
+        return annotation
+
+    type_arguments = tuple(arg for arg in get_args(annotation) if arg is not _NoneType)
+    if len(type_arguments) == 0:
+        return _NoneType  # was just None (rare)
+    if len(type_arguments) == 1:
+        return type_arguments[0]  # Optional[T] -> T
+
+    # Rebuild a union without None, T | ... | None -> T | ...
+    out = type_arguments[0]
+    for arg in type_arguments[1:]:
+        out = out | arg
+
+    return out

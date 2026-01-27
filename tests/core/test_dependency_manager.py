@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Optional
 
 import pytest
 
@@ -7,7 +7,7 @@ from lepel.core import DependencyManager
 
 class ServiceA:
     def __init__(self) -> None:
-        self.value = "a"
+        self.value = 'a'
 
 
 class ServiceB:
@@ -60,7 +60,7 @@ def test_prepare_injection_skips_varargs_varkwargs_and_self():
         return a
 
     kwargs = dependencies.prepare_injection(fn)
-    assert kwargs == {"a": 123}
+    assert kwargs == {'a': 123}
 
 
 def test_resolve_uses_default_if_not_registered():
@@ -70,13 +70,25 @@ def test_resolve_uses_default_if_not_registered():
         return x
 
     kwargs = dependencies.prepare_injection(fn)
-    assert kwargs["x"] == 7
+    assert kwargs['x'] == 7
+
+
+def test_resolve_uses_underlying_type_if_optional():
+    dependencies = DependencyManager()
+    dependencies.add_singleton(7)
+    dependencies.add_singleton('foo')
+
+    def fn(x: int | None, y: Optional[str]):
+        return x, y
+
+    kwargs = dependencies.prepare_injection(fn)
+    assert kwargs['x'] == 7
 
 
 def test_resolve_precedence_methodclass_dot_name_then_name_then_type():
     dependencies = DependencyManager()
-    dependencies.add_singleton(1, int, name="Bar.foo")
-    dependencies.add_singleton(2, int, name="foo")
+    dependencies.add_singleton(1, int, name='Bar.foo')
+    dependencies.add_singleton(2, int, name='foo')
     dependencies.add_singleton(3, int)
 
     class Bar:
@@ -85,21 +97,21 @@ def test_resolve_precedence_methodclass_dot_name_then_name_then_type():
 
     bar = Bar()
     kwargs = dependencies.prepare_injection(bar.method)
-    assert kwargs["foo"] == 1
+    assert kwargs['foo'] == 1
 
     def fn_name(foo: int) -> int:
         return foo
 
     kwargs2 = dependencies.prepare_injection(fn_name)
     # no method_class but matching name => uses name
-    assert kwargs2["foo"] == 2
+    assert kwargs2['foo'] == 2
 
     def fn_no_name(bar: int) -> int:
         return bar
 
     kwargs3 = dependencies.prepare_injection(fn_no_name)
     # no method_class or matching name => falls back to type
-    assert kwargs3["bar"] == 3
+    assert kwargs3['bar'] == 3
 
 
 def test_add_transient_disallows_override_by_default():

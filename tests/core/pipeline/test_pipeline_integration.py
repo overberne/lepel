@@ -2,7 +2,7 @@ import os
 from pathlib import Path
 from typing import Any, Mapping
 
-from lepel import DependencyManager, RecipeStep, checkpoint, run_recipe, run_step
+from lepel import DependencyManager, RecipeStep, checkpoint, run_recipe, run_step, wire
 from lepel.core.state import StateManager
 
 
@@ -41,6 +41,12 @@ class StepAdd(RecipeStep[int]):
         return counter.value
 
 
+@wire
+class WireTestClass:
+    def __init__(self, counter: Counter) -> None:
+        self.counter = counter
+
+
 def test_run_recipe_creates_checkpoints_and_saves_config(tmp_path: Path):
     output_dir = tmp_path / 'out'
     output_dir.mkdir()
@@ -55,6 +61,7 @@ def test_run_recipe_creates_checkpoints_and_saves_config(tmp_path: Path):
     ) -> None:
         dependencies.add_singleton(counter)
         state.track(counter)
+        WireTestClass()  # Should not throw
 
         run_step(StepAdd(config['by']))  # should increment counter by 2
         checkpoint('mid')

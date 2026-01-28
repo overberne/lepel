@@ -21,6 +21,7 @@ from lepel.core.pipeline.recipe_step import RecipeStep
 from lepel.core.state import Fingerprints, StateManager
 from lepel.extensions.cloudpickle_file_store import CloudpickleFileStore
 
+_active_dependency_manager: DependencyManager | None = None
 _CHECKPOINTS_RELPATH = Path('checkpoints')
 logger = getLogger(__name__)
 
@@ -121,6 +122,8 @@ def run_recipe(
     dependencies.add_singleton(context)
     dependencies.add_singleton(state)
     dependencies.add_singleton(checkpointing)
+    global _active_dependency_manager
+    _active_dependency_manager = dependencies
 
     checkpoint_reached = True
     checkpoint_name = None
@@ -225,6 +228,7 @@ def run_recipe(
     recipe(**dependencies.prepare_injection(recipe))
     logger.info('Pipeline finished!')
     unwrap_pipeline_steps()
+    _active_dependency_manager = None  # global
 
 
 def run_step[T](step: RecipeStep[T]) -> T:

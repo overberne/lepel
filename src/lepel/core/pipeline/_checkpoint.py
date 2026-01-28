@@ -1,4 +1,4 @@
-from lepel.core import RecipeStep
+from lepel.core.pipeline.recipe_step import RecipeStep
 
 
 class Checkpoint(RecipeStep):

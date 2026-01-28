@@ -9,7 +9,9 @@ from lepel.core import (
     RecipeStep,
     Stateful,
     StateManager,
+    checkpoint,
+    run_recipe,
+    run_step,
 )
 from lepel.extensions.cli import cli_args_to_config, default_argparser
 from lepel.extensions.cloudpickle_file_store import CloudpickleFileStore
-from lepel.pipeline import checkpoint, run_recipe, run_step

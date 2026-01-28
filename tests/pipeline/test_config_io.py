@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from lepel.pipeline._config import load_config, save_config
+from lepel.core.pipeline._config import load_config, save_config
 
 
 def test_load_save_json_roundtrip(tmp_path: Path):

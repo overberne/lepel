@@ -52,9 +52,9 @@ A **recipe** is a normal Python callable. Lepel injects its arguments from the d
 1. `(Type, "param_name")`
 1. `(Type, None)` (type-only)
 
-### Pipeline steps
+### Recipe steps
 
-A pipeline step is a `PipelineStep` subclass that implements `run(...)`. Lepel injects parameters of `run(...)` just like recipe parameters.
+A recipe step is a `RecipeStep` subclass that implements `run(...)`. Lepel injects parameters of `run(...)` just like recipe parameters.
 
 ### Checkpointing & resuming
 
@@ -120,9 +120,9 @@ class Counter:
 
 ```python
 from typing import Any, Mapping
-from lepel import PipelineStep
+from lepel import RecipeStep
 
-class MyStep(PipelineStep[int]):
+class MyStep(RecipeStep[int]):
     def __init__(self, by: int) -> None:
         self.by = by
 
@@ -248,7 +248,7 @@ Imported from `lepel`:
 
 ### Core types
 
-- `PipelineStep` - base class for steps (implement `run`)
+- `RecipeStep` - base class for steps (implement `run`)
 - `DependencyManager` - DI container
 - `Context` - attribute/dict backed runtime context (tracked by default)
 - `StateManager` - tracks Stateful objects and produces snapshots/deltas
@@ -291,4 +291,4 @@ If `auto_subdirs=True` (default), Lepel creates a unique subdirectory: `YYYYMMDD
 
 - Checkpoints use `cloudpickle`. Loading across different Python versions or dependency versions may fail or produce subtle issues, so treat checkpoints as best-effort, same-environment artifacts.
 - Dependency injection relies on type annotations (and parameter names for named bindings). Unannotated parameters typically won't be injectable.
-- The runner wraps `PipelineStep` subclasses dynamically; step classes must be imported/defined before they are instantiated.
+- The runner wraps `RecipeStep` subclasses dynamically; step classes must be imported/defined before they are instantiated.

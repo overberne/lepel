@@ -1,7 +1,7 @@
 import inspect
 from typing import Any, Callable, Type
 
-from lepel.core import RecipeStep
+from lepel.core.pipeline.recipe_step import RecipeStep
 
 
 def all_subclasses[T](cls: Type[T]) -> list[Type[T]]:

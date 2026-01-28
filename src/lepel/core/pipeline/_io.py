@@ -8,7 +8,7 @@ from typing import Any
 
 from coolname import generate_slug  # pyright: ignore[reportMissingTypeStubs]
 
-from lepel.pipeline._config import (
+from lepel.core.pipeline._config import (
     CONFIG_EXTENSIONS,
     find_config_file,
     find_config_override_file,

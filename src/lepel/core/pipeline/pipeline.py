@@ -1,24 +1,25 @@
 # pyright: reportPrivateUsage=false
 import sys
 import warnings
-
-# from logging import Logger, getLogger
 from logging import getLogger
 from os import PathLike
 from pathlib import Path
 from typing import Any, Callable, Mapping, cast
 
-from lepel.core import CheckpointManager, Context, DependencyManager, RecipeStep, StateManager
-from lepel.core.state import Fingerprints
-from lepel.extensions.cloudpickle_file_store import CloudpickleFileStore
-from lepel.pipeline._checkpoint import Checkpoint
-from lepel.pipeline._io import (
+from lepel.core.checkpointing import CheckpointManager
+from lepel.core.context import Context
+from lepel.core.dependency_manager import DependencyManager
+from lepel.core.pipeline._checkpoint import Checkpoint
+from lepel.core.pipeline._io import (
     copy_main_script_to_output,
     get_unique_run_subdir,
     load_and_save_configs_to_output,
 )
-from lepel.pipeline._reflection import all_subclasses, wrap_subclasses_method
-from lepel.pipeline._state_snapshot import StateSnapshot
+from lepel.core.pipeline._reflection import all_subclasses, wrap_subclasses_method
+from lepel.core.pipeline._state_snapshot import StateSnapshot
+from lepel.core.pipeline.recipe_step import RecipeStep
+from lepel.core.state import Fingerprints, StateManager
+from lepel.extensions.cloudpickle_file_store import CloudpickleFileStore
 
 _CHECKPOINTS_RELPATH = Path('checkpoints')
 logger = getLogger(__name__)
@@ -43,8 +44,8 @@ def run_recipe(
     tracked using :class:`~lepel.core.StateManager` which will be saved in
     checkpoints. This function sets up configuration, the dependency manager,
     optional checkpoint restoration, and a set of context variables,
-    and then executes the pipeline. Pipeline step classes that inherit from
-    :class:`PipelineStep` are detected automatically and their constructors are
+    and then executes the recipe. Recipe step classes that inherit from
+    :class:`RecipeStep` are detected automatically and their constructors are
     wrapped so the pipeline runner can control execution order, validation,
     and checkpoint semantics.
 
@@ -56,8 +57,8 @@ def run_recipe(
     recipe : Callable[..., Any]
         The pipeline entry function. It will be called with its arguments
         injected from the dependency manager. Typically this function will
-        import or reference pipeline step classes which are instantiated as
-        part of pipeline execution.
+        import or reference recipe step classes which are instantiated as
+        part of recipe execution.
     output_dir : str | PathLike[str] | Path
         Directory to use for pipeline outputs. The pipeline will copy the
         resolved configuration files into this directory and write artifacts
@@ -228,15 +229,15 @@ def run_recipe(
 
 def run_step[T](step: RecipeStep[T]) -> T:
     """
-    Execute a single pipeline step with dependency injection.
+    Execute a single recipe step with dependency injection.
 
     Must be called within a ``run_recipe`` context so that dependencies
     can be prepared and injected.
 
     Parameters
     ----------
-    step : PipelineStep[T]
-        The pipeline step instance to execute.
+    step : RecipeStep[T]
+        The recipe step instance to execute.
 
     Returns
     -------

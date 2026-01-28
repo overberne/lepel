@@ -1,2 +1,2 @@
 # pyright: reportUnusedImport=false
-from lepel.pipeline.pipeline import run_pipeline, run_step, checkpoint
+from lepel.pipeline.pipeline import run_recipe, run_step, checkpoint

@@ -1,7 +1,7 @@
-from lepel.core import PipelineStep
+from lepel.core import RecipeStep
 
 
-class Checkpoint(PipelineStep):
+class Checkpoint(RecipeStep):
     def __init__(self, name: str) -> None:
         """Create a pipeline checkpoint step.
 
@@ -14,7 +14,7 @@ class Checkpoint(PipelineStep):
         name : str
             Logical name for the checkpoint. Checkpoints saved by this step are
             written to the output ``checkpoints`` directory with this name as
-            the filename. The name can later be provided to ``run_pipeline``
+            the filename. The name can later be provided to ``run_recipe``
             via the ``checkpoint`` argument to resume execution from that
             checkpoint.
         """

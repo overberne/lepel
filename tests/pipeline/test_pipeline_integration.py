@@ -2,7 +2,7 @@ import os
 from pathlib import Path
 from typing import Any, Mapping
 
-from lepel import DependencyManager, PipelineStep, checkpoint, run_pipeline, run_step
+from lepel import DependencyManager, RecipeStep, checkpoint, run_recipe, run_step
 from lepel.core.state import StateManager
 
 
@@ -31,7 +31,7 @@ class Counter:
         self._dirty = False
 
 
-class StepAdd(PipelineStep[int]):
+class StepAdd(RecipeStep[int]):
     def __init__(self, by: int) -> None:
         super().__init__()
         self.by = by
@@ -41,7 +41,7 @@ class StepAdd(PipelineStep[int]):
         return counter.value
 
 
-def test_run_pipeline_creates_checkpoints_and_saves_config(tmp_path: Path):
+def test_run_recipe_creates_checkpoints_and_saves_config(tmp_path: Path):
     output_dir = tmp_path / 'out'
     output_dir.mkdir()
 
@@ -65,7 +65,7 @@ def test_run_pipeline_creates_checkpoints_and_saves_config(tmp_path: Path):
     try:
         os.chdir(output_dir)
 
-        run_pipeline(recipe, output_dir=output_dir, config_file=config_file, auto_subdirs=False)
+        run_recipe(recipe, output_dir=output_dir, config_file=config_file, auto_subdirs=False)
 
         # config copied
         assert (output_dir / 'config.json').exists()

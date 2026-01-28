@@ -1,7 +1,7 @@
 import inspect
 from typing import Any, Callable, Type
 
-from lepel.core import PipelineStep
+from lepel.core import RecipeStep
 
 
 def all_subclasses[T](cls: Type[T]) -> list[Type[T]]:
@@ -21,7 +21,7 @@ def wrap_subclasses_method(
 ) -> Callable[[], None]:
     original_methods: dict[Type[Any], Callable[..., Any]] = {}
 
-    for cls in all_subclasses(PipelineStep):
+    for cls in all_subclasses(RecipeStep):
         original_method = getattr(cls, method_name)
         original_methods[cls] = original_method
         setattr(cls, method_name, wrapper(original_method))

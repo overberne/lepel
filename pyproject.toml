@@ -20,6 +20,8 @@ keywords = [
     "Machine Learning",
     "Experiments",
     "Pipeline",
+    "Checkpointing",
+    "Workflow",
 ]
 dependencies = [
     'cloudpickle ~=3.1.2',

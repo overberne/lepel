@@ -1,4 +1,4 @@
-# Lepel - Learning Pipeline Recipe Library
+# Lepel - Learning Recipe Library
 
 **Lepel** is a tiny, single-machine pipeline runner for experiment-style workflows: define a "recipe" that wires dependencies, runs ordered steps, and automatically persists/resumes state via checkpoints.
 
@@ -135,7 +135,7 @@ class MyStep(PipelineStep[int]):
 
 ```python
 from pathlib import Path
-from lepel import Context, DependencyManager, StateManager, checkpoint, run_pipeline, run_step
+from lepel import Context, DependencyManager, StateManager, checkpoint, run_recipe, run_step
 
 def recipe(
     context: Context,
@@ -154,7 +154,7 @@ def recipe(
 
 
 if __name__ == "__main__":
-    run_pipeline(
+    run_recipe(
         recipe,
         output_dir="output",
         config_file="config.yaml",
@@ -169,7 +169,7 @@ if __name__ == "__main__":
 
 ### Supported formats
 
-Use `lepel.pipeline._config.load_config/save_config` via the `run_pipeline`:
+Use `lepel.pipeline._config.load_config/save_config` via the `run_recipe`:
 
 - `.yaml` / `.yml` (requires `PyYAML`)
 - `.json`
@@ -178,7 +178,7 @@ Use `lepel.pipeline._config.load_config/save_config` via the `run_pipeline`:
 ### How config is used
 
 - Config is loaded and copied into the `output_dir`
-- Any keyword args passed to `run_pipeline(..., **overrides)` override config values
+- Any keyword args passed to `run_recipe(..., **overrides)` override config values
 - A `config_override.*` file may be discovered alongside the main script and merged
 - The full config dict is registered into DI as:
   - `config` (named singleton, `dict`)
@@ -217,14 +217,14 @@ Example:
 
 ```python
 from lepel.extensions.cli import default_argparser, cli_args_to_config
-from lepel import run_pipeline
+from lepel import run_recipe
 
 parser = default_argparser()
 args, extras = parser.parse_known_args()
 
 overrides = cli_args_to_config(extras)
 
-run_pipeline(
+run_recipe(
     recipe,
     output_dir=args.output_dir,
     config_file=args.config,
@@ -242,7 +242,7 @@ Imported from `lepel`:
 
 ### Pipeline execution
 
-- `run_pipeline(recipe, *, output_dir, config_file=None, checkpoint=None, save_git=False, auto_checkpoint=True, auto_subdirs=True, **overrides)`
+- `run_recipe(recipe, *, output_dir, config_file=None, checkpoint=None, save_git=False, auto_checkpoint=True, auto_subdirs=True, **overrides)`
 - `run_step(step)`
 - `checkpoint(name)`
 

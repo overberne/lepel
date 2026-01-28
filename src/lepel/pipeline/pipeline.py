@@ -8,7 +8,7 @@ from os import PathLike
 from pathlib import Path
 from typing import Any, Callable, Mapping, cast
 
-from lepel.core import CheckpointManager, Context, DependencyManager, PipelineStep, StateManager
+from lepel.core import CheckpointManager, Context, DependencyManager, RecipeStep, StateManager
 from lepel.core.state import Fingerprints
 from lepel.extensions.cloudpickle_file_store import CloudpickleFileStore
 from lepel.pipeline._checkpoint import Checkpoint
@@ -24,7 +24,7 @@ _CHECKPOINTS_RELPATH = Path('checkpoints')
 logger = getLogger(__name__)
 
 
-def run_pipeline(
+def run_recipe(
     recipe: Callable[..., Any],
     *,
     output_dir: str | PathLike[str] | Path,
@@ -35,7 +35,7 @@ def run_pipeline(
     auto_subdirs: bool = True,
     **config_override: Any,
 ) -> None:
-    """Run a pipeline function with dependency injection, config and checkpoints.
+    """Run a recipe function with dependency injection, config and checkpoints.
 
     The ``recipe`` callable defines a sequence of pipeline steps and a
     preamble where dependencies can be registered on the provided
@@ -152,7 +152,7 @@ def run_pipeline(
     def run_step_wrapper(original_run_step: Callable[..., Any]) -> Callable[..., Any]:
         """Wraps the __run_step__ functions of all imported PipelineStep implementations."""
 
-        def new_run_step(self: PipelineStep) -> Any:
+        def new_run_step(self: RecipeStep) -> Any:
             nonlocal checkpoint_reached, current_step, results, fingerprints
 
             # Validate dependencies when running first step
@@ -219,18 +219,18 @@ def run_pipeline(
 
         return new_run_step
 
-    unwrap_pipeline_steps = wrap_subclasses_method(PipelineStep, '__run_step__', run_step_wrapper)
+    unwrap_pipeline_steps = wrap_subclasses_method(RecipeStep, '__run_step__', run_step_wrapper)
     logger.info('Running pipeline...')
     recipe(**dependencies.prepare_injection(recipe))
     logger.info('Pipeline finished!')
     unwrap_pipeline_steps()
 
 
-def run_step[T](step: PipelineStep[T]) -> T:
+def run_step[T](step: RecipeStep[T]) -> T:
     """
     Execute a single pipeline step with dependency injection.
 
-    Must be called within a ``run_pipeline`` context so that dependencies
+    Must be called within a ``run_recipe`` context so that dependencies
     can be prepared and injected.
 
     Parameters
@@ -271,7 +271,7 @@ def _validate_dependencies(dependencies: DependencyManager) -> None:
     except RuntimeError as e:
         warnings.warn(str(e), RuntimeWarning, stacklevel=3)
 
-    for cls in all_subclasses(PipelineStep):
+    for cls in all_subclasses(RecipeStep):
         try:
             dependencies.throw_if_uninjectable(cls.run)
         except RuntimeError as e:

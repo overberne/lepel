@@ -108,3 +108,22 @@ def test_load_applies_state_to_tracked_objects_by_type_and_index():
 
     assert a0.value == 10
     assert a1.value == 20
+
+
+def test_track_applies_state_preloaded_by_load():
+    state = StateManager()
+    a0 = SimpleStateful(0)
+    a1 = SimpleStateful(0)
+
+    state.track(a0)
+
+    state_dicts: StateDicts = {
+        (_type_name(a0), 0): {'value': 10},
+        (_type_name(a0), 1): {'value': 20},
+    }
+    state.load(state_dicts)
+
+    state.track(a1)
+
+    assert a0.value == 10
+    assert a1.value == 20

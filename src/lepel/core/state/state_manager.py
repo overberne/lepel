@@ -20,9 +20,11 @@ class StateManager:
     """
 
     _tracked_objects: dict[str, list[Stateful]]
+    _preloaded_state: dict[str, dict[int, Mapping[str, Any]]]
 
     def __init__(self) -> None:
         self._tracked_objects = defaultdict(list)
+        self._preloaded_state = {}
 
     def track(self, obj: Stateful) -> None:
         """
@@ -36,22 +38,40 @@ class StateManager:
         obj : Stateful
             Object whose state should be tracked.
         """
-        objects = self._tracked_objects[_type_name(obj)]
-        if obj not in objects:
-            objects.append(obj)
+        type_name = _type_name(obj)
+        objects = self._tracked_objects[type_name]
+
+        if obj in objects:
+            return
+
+        object_index = len(objects)
+        objects.append(obj)
+
+        # Load any preloaded state for this object
+        if type_name in self._preloaded_state:
+            if object_index in self._preloaded_state[type_name]:
+                obj.load_state_dict(self._preloaded_state[type_name].pop(object_index))
+            if not self._preloaded_state[type_name]:
+                del self._preloaded_state[type_name]
 
     def load(self, state_dicts: StateDicts) -> None:
         """
         Load a full state snapshot into tracked objects.
+
+        Any state entries for untracked objects are stored for potential
+        future use.
 
         Parameters
         ----------
         state_dicts : StateDicts
             Snapshot containing complete state dictionaries.
         """
-        for (type_name, obj_index), obj_state in state_dicts.items():
-            obj = self._tracked_objects[type_name][obj_index]
-            obj.load_state_dict(obj_state)
+        for (type_name, index), obj_state in state_dicts.items():
+            if type_name in self._tracked_objects and index < len(self._tracked_objects[type_name]):
+                obj = self._tracked_objects[type_name][index]
+                obj.load_state_dict(obj_state)
+            else:
+                self._preloaded_state.setdefault(type_name, {})[index] = obj_state
 
     def delta(self, fingerprints: Fingerprints) -> tuple[StateDicts, Fingerprints]:
         """

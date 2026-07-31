@@ -41,3 +41,6 @@ typeCheckingMode = "strict"
 [tool.black]
 line-length = 100
 skip-string-normalization = true
+
+[tool.ruff.format]
+quote-style = "single"

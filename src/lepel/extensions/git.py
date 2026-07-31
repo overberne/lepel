@@ -31,7 +31,7 @@ def save_git_status(output_dir: Path):
         return
 
     unstaged = [item.a_path for item in repo.index.diff(None)]
-    staged = [item.a_path for item in repo.index.diff('Head')]
+    staged = [item.a_path for item in repo.index.diff('HEAD')]
 
     changes = [
         changed_file

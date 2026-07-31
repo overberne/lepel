@@ -3,7 +3,9 @@ from pathlib import Path
 from typing import Any
 
 
-def default_argparser(description: str = 'Lepel experiment pipeline') -> argparse.ArgumentParser:
+def default_argparser(
+    description: str = 'Lepel experiment pipeline',
+) -> argparse.ArgumentParser:
     """
     Creates a default argument parser for Lepel pipelines.
 
@@ -25,7 +27,11 @@ def default_argparser(description: str = 'Lepel experiment pipeline') -> argpars
     """
     parser = argparse.ArgumentParser(description=description)
     parser.add_argument(
-        '-o', '--output-dir', type=Path, default='.', help='Path to the output directory.'
+        '-o',
+        '--output-dir',
+        type=Path,
+        default='./out',
+        help='Path to the output directory.',
     )
     parser.add_argument(
         '-c',

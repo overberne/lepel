@@ -10,6 +10,7 @@ from lepel.core import (
     Stateful,
     StateManager,
     checkpoint,
+    inject,
     run_recipe,
     run_step,
     wire,

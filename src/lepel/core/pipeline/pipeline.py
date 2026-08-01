@@ -15,12 +15,13 @@ from lepel.core.pipeline._io import (
     get_unique_run_subdir,
     load_and_save_configs_to_output,
 )
-from lepel.core.pipeline._reflection import all_subclasses, wrap_subclasses_method
+from lepel.core.pipeline._reflection import all_subclasses
 from lepel.core.pipeline._state_snapshot import StateSnapshot
 from lepel.core.pipeline.recipe_step import RecipeStep
 from lepel.core.state import Fingerprints, StateManager
 from lepel.extensions.cloudpickle_file_store import CloudpickleFileStore
 
+_run_step: Callable[..., Any] | None = None
 _active_dependency_manager: DependencyManager | None = None
 _CHECKPOINTS_RELPATH = Path('checkpoints')
 logger = getLogger(__name__)
@@ -97,7 +98,9 @@ def run_recipe(
 
         save_git_status(output_dir)
 
-    config_name, config = load_and_save_configs_to_output(output_dir, config_file, config_override)
+    config_name, config = load_and_save_configs_to_output(
+        output_dir, config_file, config_override
+    )
     if config_name:
         logger.info('Configuration "%s" loaded', str(config_name))
     if config_override:
@@ -114,7 +117,9 @@ def run_recipe(
     state = StateManager()
     state.track(context)
     checkpoint_dir = output_dir / _CHECKPOINTS_RELPATH
-    checkpointing = CheckpointManager[StateSnapshot](checkpoint_dir, CloudpickleFileStore())
+    checkpointing = CheckpointManager[StateSnapshot](
+        checkpoint_dir, CloudpickleFileStore()
+    )
     dependencies = DependencyManager()
     _add_flat_config_items_to_dependencies(dependencies, config)
     dependencies.add_singleton(config, name='config')
@@ -152,86 +157,90 @@ def run_recipe(
 
     current_step = 0
 
-    def run_step_wrapper(original_run_step: Callable[..., Any]) -> Callable[..., Any]:
-        """Wraps the __run_step__ functions of all imported PipelineStep implementations."""
+    def new_run_step(
+        step: RecipeStep[Any] | Callable[..., Any], *args: Any, **kwargs: Any
+    ) -> Any:
+        nonlocal checkpoint_reached, current_step, results, fingerprints
 
-        def new_run_step(self: RecipeStep) -> Any:
-            nonlocal checkpoint_reached, current_step, results, fingerprints
+        # Validate dependencies when running first step
+        # user may have registered dependencies in the preamble of the pipeline
+        if current_step == 0:
+            _validate_dependencies(dependencies)
 
-            # Validate dependencies when running first step
-            # user may have registered dependencies in the preamble of the pipeline
-            if current_step == 0:
-                _validate_dependencies(dependencies)
+            # Save initial state as a checkpoint
+            if auto_checkpoint and checkpoint_reached:
+                state_dicts, fingerprints = state.snapshot()
+                snapshot: StateSnapshot = {  # pyright: ignore[reportRedeclaration]
+                    'state_dicts': state_dicts,
+                    'fingerprints': fingerprints,
+                    'step_results': results,
+                }
+                checkpointing.save_full('initial', snapshot)
 
-                # Save initial state as a checkpoint
-                if auto_checkpoint and checkpoint_reached:
-                    state_dicts, fingerprints = state.snapshot()
-                    snapshot: StateSnapshot = {
-                        'state_dicts': state_dicts,
-                        'fingerprints': fingerprints,
-                        'step_results': results,
-                    }
-                    checkpointing.save_full(
-                        'initial',
-                        snapshot,
-                    )
-
-            if isinstance(self, Checkpoint):
-                if f'{current_step:04d}_{self.name}' == checkpoint_name and checkpoint_data:
-                    state.load(checkpoint_data['state_dicts'])
-                    checkpoint_reached = True
-                elif checkpoint_reached:
-                    logger.info('%04d Creating checkpoint "%s"', current_step, self.name)
-                    state_dicts, fingerprints = state.snapshot()
-                    snapshot: StateSnapshot = {
-                        'state_dicts': state_dicts,
-                        'fingerprints': fingerprints,
-                        'step_results': results,
-                    }
-                    checkpointing.save_full(self.name, snapshot)
-                results.append(None)
-                current_step += 1
-                return None
-
+        if isinstance(step, Checkpoint):
+            if f'{current_step:04d}_{step.name}' == checkpoint_name and checkpoint_data:
+                state.load(checkpoint_data['state_dicts'])
+                checkpoint_reached = True
+            elif checkpoint_reached:
+                logger.info('%04d Creating checkpoint "%s"', current_step, step.name)
+                state_dicts, fingerprints = state.snapshot()
+                snapshot: StateSnapshot = {
+                    'state_dicts': state_dicts,
+                    'fingerprints': fingerprints,
+                    'step_results': results,
+                }
+                checkpointing.save_full(step.name, snapshot)
+            results.append(None)
             current_step += 1
-            if not checkpoint_reached:
-                if current_step > len(results):
-                    raise RuntimeError(
-                        f'Checkpoint "{checkpoint_name}" did not contain enough stored results'
-                    )
-                return results[current_step - 1]
-            else:
-                step_name = self.__class__.__name__
-                context.pipeline_step = step_name
-                logger.info('%04d %s: Started', current_step, step_name)
-                result = self.run(**dependencies.prepare_injection(self.run))
+            return None
 
-                if auto_checkpoint:
-                    state_delta, fingerprints = state.delta(fingerprints)
-                    checkpointing.save_incremental(
-                        step_name,
-                        {
-                            'state_dicts': state_delta,
-                            'fingerprints': fingerprints,
-                            'step_results': [result],
-                        },
-                    )
+        current_step += 1
+        if not checkpoint_reached:
+            if current_step > len(results):
+                raise RuntimeError(
+                    f'Checkpoint "{checkpoint_name}" did not contain enough stored results'
+                )
+            return results[current_step - 1]
 
-                logger.info('%04d %s: Finished', current_step, step_name)
-                results.append(result)
-                return result
+        step_name: str
+        result: Any
+        if isinstance(step, RecipeStep):
+            step = cast(RecipeStep[Any], step)
+            step_name = type(step).__name__
+            step = step.run
+        else:
+            step_name = step.__name__
+        context.pipeline_step = step_name
+        logger.info('%04d %s: Started', current_step, step_name)
+        kwargs = dependencies.prepare_injection(step) | kwargs
+        result = step(*args, **kwargs)
 
-        return new_run_step
+        if auto_checkpoint:
+            state_delta, fingerprints = state.delta(fingerprints)
+            checkpointing.save_incremental(
+                step_name,
+                {
+                    'state_dicts': state_delta,
+                    'fingerprints': fingerprints,
+                    'step_results': [result],
+                },
+            )
 
-    unwrap_pipeline_steps = wrap_subclasses_method(RecipeStep, '__run_step__', run_step_wrapper)
+        logger.info('%04d %s: Finished', current_step, step_name)
+        results.append(result)
+        return result
+
+    global _run_step
+    _run_step = new_run_step
+
     logger.info('Running pipeline...')
     recipe(**dependencies.prepare_injection(recipe))
     logger.info('Pipeline finished!')
-    unwrap_pipeline_steps()
     _active_dependency_manager = None  # global
+    _run_step = None  # global
 
 
-def run_step[T](step: RecipeStep[T]) -> T:
+def run_step[T](step: RecipeStep[T] | Callable[..., T], *args: Any, **kwargs: Any) -> T:
     """
     Execute a single recipe step with dependency injection.
 
@@ -248,7 +257,9 @@ def run_step[T](step: RecipeStep[T]) -> T:
     T
         The result of the pipeline step's ``run`` method.
     """
-    return step.__run_step__()
+    if _run_step is None:
+        raise RuntimeError('run_step must be called from a run_recipe context.')
+    return _run_step(step, *args, **kwargs)
 
 
 def checkpoint(name: str) -> None:

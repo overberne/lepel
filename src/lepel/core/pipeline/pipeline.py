@@ -154,6 +154,7 @@ def run_recipe(
         checkpoint_reached = False
         fingerprints = checkpoint_data['fingerprints']
         results = checkpoint_data['step_results']
+        state.load(checkpoint_data['state_dicts'])
 
     current_step = 0
 
@@ -179,7 +180,6 @@ def run_recipe(
 
         if isinstance(step, Checkpoint):
             if f'{current_step:04d}_{step.name}' == checkpoint_name and checkpoint_data:
-                state.load(checkpoint_data['state_dicts'])
                 checkpoint_reached = True
             elif checkpoint_reached:
                 logger.info('%04d Creating checkpoint "%s"', current_step, step.name)

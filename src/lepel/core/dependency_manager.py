@@ -326,8 +326,9 @@ class DependencyManager:
 
         Resolution order:
         1. Type + MethodClassName.Name
-        1. Type + Name
-        2. Type
+        2. Type + Name
+        3. Type
+        4. Name
 
         Parameters
         ----------
@@ -360,6 +361,11 @@ class DependencyManager:
             provider = self._providers.get((annotation, name))
         if provider is None:
             provider = self._providers.get((annotation, None))
+        if provider is None:
+            provider = next(
+                (value for key, value in self._providers.items() if key[1] == name),
+                None,
+            )
 
         if provider is not None:
             return provider()
@@ -369,6 +375,8 @@ class DependencyManager:
 
         if name is None:
             raise LookupError(f'Cannot resolve dependency for type "{annotation}"')
+        elif annotation == inspect.Parameter.empty:
+            raise LookupError(f'Cannot resolve dependency for name "{name}"')
         else:
             raise LookupError(
                 f'Cannot resolve dependency for type "{annotation}" and name "{name}"'

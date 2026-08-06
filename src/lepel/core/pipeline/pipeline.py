@@ -213,7 +213,7 @@ def run_recipe(
             step_name = step.__name__
         context.pipeline_step = step_name
         logger.info('%04d %s: Started', current_step, step_name)
-        kwargs = dependencies.prepare_injection(step) | kwargs
+        kwargs = dependencies.prepare_injection(step, **kwargs)
         result = step(*args, **kwargs)
 
         if auto_checkpoint:

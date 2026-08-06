@@ -1,10 +1,9 @@
 # pyright: reportPrivateUsage=false
 import inspect
 import types
+from collections.abc import Callable
 from typing import (
     Any,
-    Callable,
-    Type,
     TypeIs,
     Union,
     cast,
@@ -45,8 +44,6 @@ class DependencyManager:
     - Supports `dependency_injector.providers` as factory methods.
     """
 
-    _providers: dict[_ProviderKey, Callable[..., Any]]
-
     def __init__(self) -> None:
         self._providers: dict[_ProviderKey, Callable[..., Any]] = {}
         self.add_singleton(self)
@@ -61,7 +58,10 @@ class DependencyManager:
         return (dependency, None) in self._providers
 
     def prepare_injection(
-        self, method: Callable[..., Any] | Type[Any]
+        self,
+        method: Callable[..., Any] | type[Any],
+        *args: Any,
+        **kwargs: Any,
     ) -> dict[str, Any]:
         """
         Get injectable function arguments from the dependency container.
@@ -79,10 +79,23 @@ class DependencyManager:
         if hasattr(method, '__self__'):
             method_class = method.__self__.__class__  # pyright: ignore[reportFunctionMemberAccess]
 
-        kwargs: dict[str, Any] = {}
+        bind_args = args
+        parameters = tuple(sig.parameters.values())
+
+        if (
+            parameters
+            and parameters[0].name == 'self'
+            and getattr(method, '__self__', None) is None
+        ):
+            bind_args = (None, *args)
+
+        bound = sig.bind_partial(*bind_args, **kwargs)
+        injections = dict(kwargs)
+
         for name, param in sig.parameters.items():
             if (
                 name == 'self'
+                or name in bound.arguments
                 or param.kind == param.VAR_POSITIONAL  # *args
                 or param.kind == param.VAR_KEYWORD  # **kwargs
             ):
@@ -90,18 +103,18 @@ class DependencyManager:
 
             annotation = hints.get(name, inspect._empty)
             annotation = _strip_optional(annotation)
-            kwargs[name] = self.resolve(
+            injections[name] = self.resolve(
                 annotation,
                 name,
                 method_class=method_class,
                 default=param.default,
             )
 
-        return kwargs
+        return injections
 
-    def wire[T](self, factory: Callable[..., T] | Type[T]) -> Callable[[], T]:
+    def wire[T](self, factory: Callable[..., T] | type[T]) -> Callable[[], T]:
         if isinstance(factory, type):
-            factory = cast(Type[T], factory)
+            factory = cast(type[T], factory)
             sig = inspect.signature(factory.__init__)
             if len(sig.parameters) == 1:
                 setattr(factory, _ORIGINAL_FACTORY_ATTR, factory.__init__)
@@ -121,7 +134,7 @@ class DependencyManager:
     @overload
     def add_transient[T](
         self,
-        factory: Callable[..., T] | Type[Any],
+        factory: Callable[..., T] | type[Any],
         *,
         name: str | None = None,
         allow_override: bool = False,
@@ -137,7 +150,7 @@ class DependencyManager:
 
         Parameters
         ----------
-        factory : Callable[..., T] | Type[Any]
+        factory : Callable[..., T] | type[Any]
             Factory function for the dependency.
         name : str | None
             The name to associate with the dependency of this type, by default None
@@ -154,8 +167,8 @@ class DependencyManager:
     @overload
     def add_transient[T](
         self,
-        factory: Callable[..., Any] | Type[Any],
-        service_class: Type[T],
+        factory: Callable[..., Any] | type[Any],
+        service_class: type[T],
         *,
         name: str | None = None,
         allow_override: bool = False,
@@ -169,9 +182,9 @@ class DependencyManager:
 
         Parameters
         ----------
-        factory : Callable[..., T] | Type[Any]
+        factory : Callable[..., T] | type[Any]
             Factory function for the dependency.
-        service_class : Type[Any]
+        service_class : type[Any]
             The alias under which to register the dependency.
         name : str | None
             The name to associate with the dependency of this type, by default None
@@ -188,8 +201,8 @@ class DependencyManager:
 
     def add_transient[T](
         self,
-        factory: Callable[..., Any] | Type[Any],
-        service_class: Type[T] | None = None,
+        factory: Callable[..., Any] | type[Any],
+        service_class: type[T] | None = None,
         *,
         name: str | None = None,
         allow_override: bool = False,
@@ -200,8 +213,9 @@ class DependencyManager:
                     service_class = factory
                 else:  # Normal callable
                     service_class = _get_callable_return_type(factory)
-            except:
-                # Fallback for third party dependency providers/factories like `dependency-injector`.
+            except RuntimeError:
+                # Fallback for third party dependency providers/factories
+                # like the `dependency-injector` package.
                 service_class = _try_third_party_di_type(factory)
 
         if service_class is None:
@@ -248,7 +262,7 @@ class DependencyManager:
     def add_singleton[T](
         self,
         instance: Any,
-        service_class: Type[T],
+        service_class: type[T],
         *,
         name: str | None = None,
         allow_override: bool = False,
@@ -260,7 +274,7 @@ class DependencyManager:
         ----------
         instance : Any
             The singleton instance of the dependency.
-        service_class : Type[Any]
+        service_class : type[Any]
             The alias under which to register the dependency.
         name : str | None
             The name to associate with the dependency of this type, by default None
@@ -278,7 +292,7 @@ class DependencyManager:
     def add_singleton[T](
         self,
         instance: T,
-        service_class: Type[T] | None = None,
+        service_class: type[T] | None = None,
         *,
         name: str | None = None,
         allow_override: bool = False,
@@ -302,10 +316,10 @@ class DependencyManager:
 
     def resolve[T](
         self,
-        annotation: Type[T],
+        annotation: type[T],
         name: str | None = None,
         *,
-        method_class: Type[Any] | None = None,
+        method_class: type[Any] | None = None,
         default: T = inspect.Parameter.empty,
     ) -> T:
         """Resolve a dependency by type and/or name.
@@ -317,11 +331,11 @@ class DependencyManager:
 
         Parameters
         ----------
-        annotation : Type[T]
+        annotation : type[T]
             The type of the dependency.
         name : str | None
             The name of the dependency, by default None.
-        method_class: Type[Any] | None
+        method_class: type[Any] | None
             the class owning the method, if dependency comes from a method signature.
         default : T
             A fallback value to use if the dependency is not found,
@@ -360,13 +374,13 @@ class DependencyManager:
                 f'Cannot resolve dependency for type "{annotation}" and name "{name}"'
             )
 
-    def throw_if_uninjectable(self, method: Callable[..., Any] | Type[Any]):
+    def throw_if_uninjectable(self, method: Callable[..., Any] | type[Any]):
         """
         Throw an error if any dependencies in the method signature are not injectable.
 
         Parameters
         ----------
-        method : Callable[..., Any] | Type[Any]
+        method : Callable[..., Any] | type[Any]
             The method or class to check for injectable dependencies.
 
         Raises
@@ -413,9 +427,9 @@ class DependencyManager:
 
     def _can_resolve(
         self,
-        annotation: Type[Any],
+        annotation: type[Any],
         name: str | None = None,
-        method_class: Type[Any] | None = None,
+        method_class: type[Any] | None = None,
         default: Any = inspect.Parameter.empty,
     ) -> bool:
         return (
@@ -429,7 +443,7 @@ class DependencyManager:
         )
 
 
-def _try_third_party_di_type(factory: Callable[..., Any]) -> Type[Any] | None:
+def _try_third_party_di_type(factory: Callable[..., Any]) -> type[Any] | None:
     return (
         _get_dependency_injector_provider_type(factory)
         # or _get_dependency_injector_provider_type(factory)
@@ -439,7 +453,7 @@ def _try_third_party_di_type(factory: Callable[..., Any]) -> Type[Any] | None:
 
 def _get_dependency_injector_provider_type(
     provider: Callable[..., Any],
-) -> Type[Any] | None:
+) -> type[Any] | None:
     """For the `dependency-injector` library."""
     provides = getattr(provider, 'provides', None)
 
@@ -459,7 +473,7 @@ def _get_dependency_injector_provider_type(
     raise RuntimeError('Cannot get dependency type from provider.')
 
 
-def _get_callable_return_type(func: Callable[..., Any]) -> Type[Any] | None:
+def _get_callable_return_type(func: Callable[..., Any]) -> type[Any] | None:
     """
     Extract return type from a callable using type annotations.
     """
@@ -473,7 +487,8 @@ def _get_callable_return_type(func: Callable[..., Any]) -> Type[Any] | None:
 def _strip_optional(annotation: Any) -> Any:
     """
     If annotation is Optional[T] / T | None, return T.
-    If annotation is a union with None (e.g. A | B | None), return the union without None.
+    If annotation is a union with None (e.g. A | B | None),
+    return the union without None.
     Otherwise return annotation unchanged.
     """
     origin = get_origin(annotation)

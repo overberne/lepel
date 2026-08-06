@@ -1,14 +1,15 @@
 # pyright: reportPrivateUsage=false
-from typing import Any, Callable, Type, overload
+from collections.abc import Callable
+from typing import Any, overload
 
 
 @overload
-def inject[T](func: Type[T], *args: Any, **kwargs: Any) -> T: ...
+def inject[T](func: type[T], *args: Any, **kwargs: Any) -> T: ...
 @overload
 def inject[T](func: Callable[[], T], *args: Any, **kwargs: Any) -> T: ...
 
 
-def inject[T](func: Type[T] | Callable[[], T], *args: Any, **kwargs: Any) -> T:
+def inject[T](func: type[T] | Callable[[], T], *args: Any, **kwargs: Any) -> T:
     """
     Wraps a class, injecting all arguments via :class:`DependencyManager`.
 
@@ -29,5 +30,5 @@ def inject[T](func: Type[T] | Callable[[], T], *args: Any, **kwargs: Any) -> T:
             f'No active DependencyManager to resolve dependencies for {func.__name__}.'
             ' This constructor/function can only be called from a run_recipe() context.'
         )
-    kwargs = _active_dependency_manager.prepare_injection(func) | kwargs
+    kwargs = _active_dependency_manager.prepare_injection(func, **kwargs)
     return func(*args, **kwargs)

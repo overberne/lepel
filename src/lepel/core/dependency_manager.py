@@ -286,10 +286,16 @@ class DependencyManager:
         def factory():
             return instance
 
+        if service_class is None:
+            if isinstance(instance, list):
+                service_class = _infer_list_type(instance)  # pyright: ignore[reportUnknownArgumentType]
+            else:
+                service_class = instance.__class__
+
         setattr(factory, _SINGLETON_ATTR, True)
         self.add_transient(
             factory,
-            service_class=service_class or instance.__class__,
+            service_class=service_class,
             name=name,
             allow_override=allow_override,
         )
@@ -486,3 +492,18 @@ def _strip_optional(annotation: Any) -> Any:
         out = out | arg
 
     return out
+
+
+def _infer_list_type(value: list[Any]) -> type[list[Any]]:
+    if not value:
+        raise TypeError('Cannot infer element type from empty list')
+
+    element_types: set[type] = {type(item) for item in value}
+
+    if len(element_types) != 1:
+        raise TypeError(
+            f'Cannot infer one element type from mixed list: {element_types}'
+        )
+
+    element_type = next(iter(element_types))
+    return list[element_type]

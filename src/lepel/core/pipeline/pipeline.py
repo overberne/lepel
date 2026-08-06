@@ -1,11 +1,11 @@
 # pyright: reportPrivateUsage=false
 import sys
 import warnings
+from collections.abc import Callable, Mapping
 from logging import getLogger
 from os import PathLike
 from pathlib import Path
-from types import GenericAlias
-from typing import Any, Callable, Mapping, Type, cast
+from typing import Any, cast
 
 from lepel.core.checkpointing import CheckpointManager
 from lepel.core.context import Context
@@ -308,26 +308,5 @@ def _add_flat_config_items_to_dependencies(
                 config=cast(dict[str, Any], value),
                 prefix=f'{prefix}{key}.',
             )
-        elif isinstance(value, list):
-            dependencies.add_singleton(
-                value,
-                name=f'{prefix}{key}',
-                service_class=infer_list_type(cast(list[Any], value)),
-            )
         else:
             dependencies.add_singleton(value, name=f'{prefix}{key}')
-
-
-def infer_list_type(value: list[Any]) -> type[list[Any]]:
-    if not value:
-        raise TypeError('Cannot infer element type from empty list')
-
-    element_types: set[type] = {type(item) for item in value}
-
-    if len(element_types) != 1:
-        raise TypeError(
-            f'Cannot infer one element type from mixed list: {element_types}'
-        )
-
-    element_type = next(iter(element_types))
-    return list[element_type]

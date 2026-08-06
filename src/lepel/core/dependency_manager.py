@@ -66,18 +66,18 @@ class DependencyManager:
         """
         Get injectable function arguments from the dependency container.
         """
+        method_class = None
         if isinstance(method, type):
+            method_class = method
             method = method.__init__
+        elif hasattr(method, '__self__'):
+            method_class = method.__self__.__class__  # pyright: ignore[reportFunctionMemberAccess]
 
         sig = inspect.signature(method)
         try:
             hints = get_type_hints(method)
         except (TypeError, ValueError):
             hints = {}
-
-        method_class = None
-        if hasattr(method, '__self__'):
-            method_class = method.__self__.__class__  # pyright: ignore[reportFunctionMemberAccess]
 
         bind_args = args
         parameters = tuple(sig.parameters.values())
@@ -362,8 +362,9 @@ class DependencyManager:
         if provider is None:
             provider = self._providers.get((annotation, None))
         if provider is None:
+            key = f'{method_class.__name__}.{name}' if method_class else name
             provider = next(
-                (value for key, value in self._providers.items() if key[1] == name),
+                (v for k, v in self._providers.items() if k[1] == key),
                 None,
             )
 

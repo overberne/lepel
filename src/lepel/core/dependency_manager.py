@@ -60,7 +60,9 @@ class DependencyManager:
 
         return (dependency, None) in self._providers
 
-    def prepare_injection(self, method: Callable[..., Any] | Type[Any]) -> dict[str, Any]:
+    def prepare_injection(
+        self, method: Callable[..., Any] | Type[Any]
+    ) -> dict[str, Any]:
         """
         Get injectable function arguments from the dependency container.
         """
@@ -331,7 +333,9 @@ class DependencyManager:
         """
         provider = None
         if name and method_class:
-            provider = self._providers.get((annotation, f'{method_class.__name__}.{name}'))
+            provider = self._providers.get(
+                (annotation, f'{method_class.__name__}.{name}')
+            )
         if provider is None and name:
             provider = self._providers.get((annotation, name))
         if provider is None:
@@ -343,7 +347,12 @@ class DependencyManager:
         if default != inspect.Parameter.empty:
             return default
 
-        raise LookupError(f'Cannot resolve dependency for type "{annotation}"')
+        if name is None:
+            raise LookupError(f'Cannot resolve dependency for type "{annotation}"')
+        else:
+            raise LookupError(
+                f'Cannot resolve dependency for type "{annotation}" and name "{name}"'
+            )
 
     def throw_if_uninjectable(self, method: Callable[..., Any] | Type[Any]):
         """
@@ -406,7 +415,10 @@ class DependencyManager:
         return (
             (annotation, name) in self._providers
             or (annotation, None) in self._providers
-            or (method_class and (annotation, f'{method_class.__name__}.{name}') in self._providers)
+            or (
+                method_class
+                and (annotation, f'{method_class.__name__}.{name}') in self._providers
+            )
             or (default != inspect.Parameter.empty)
         )
 
@@ -419,7 +431,9 @@ def _try_third_party_di_type(factory: Callable[..., Any]) -> Type[Any] | None:
     )
 
 
-def _get_dependency_injector_provider_type(provider: Callable[..., Any]) -> Type[Any] | None:
+def _get_dependency_injector_provider_type(
+    provider: Callable[..., Any],
+) -> Type[Any] | None:
     """For the `dependency-injector` library."""
     provides = getattr(provider, 'provides', None)
 

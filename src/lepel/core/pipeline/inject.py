@@ -30,5 +30,5 @@ def inject[T](func: type[T] | Callable[[], T], *args: Any, **kwargs: Any) -> T:
             f'No active DependencyManager to resolve dependencies for {func.__name__}.'
             ' This constructor/function can only be called from a run_recipe() context.'
         )
-    kwargs = _active_dependency_manager.prepare_injection(func, **kwargs)
+    kwargs = _active_dependency_manager.prepare_injection(func, *args, **kwargs)
     return func(*args, **kwargs)

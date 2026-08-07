@@ -26,7 +26,7 @@ def wire[T](cls: Type[T]) -> Callable[..., T]:
                 f'No active DependencyManager to resolve dependencies for {cls.__name__}.'
                 ' This constructor can only be called from a run_recipe() context.'
             )
-        kwargs = _active_dependency_manager.prepare_injection(cls) | kwargs
+        kwargs = _active_dependency_manager.prepare_injection(cls, *args, **kwargs)
         return cls(*args, **kwargs)
 
     return constructor

@@ -227,7 +227,6 @@ def run_recipe(
                 },
             )
 
-        logger.info('%04d %s: Finished', current_step, step_name)
         results.append(result)
         return result
 

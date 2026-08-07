@@ -271,7 +271,9 @@ def checkpoint(name: str) -> None:
     pipeline is serialized and saved to a checkpoint file named ``name``,
     prefixed by the step number, in the pipeline's checkpoints directory.
     """
-    Checkpoint(name).__run_step__()
+    if _run_step is None:
+        raise RuntimeError('checkpoint must be called from a run_recipe context.')
+    _run_step(Checkpoint, name)
 
 
 def _get_pipeline_name() -> str:

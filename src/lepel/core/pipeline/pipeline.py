@@ -93,6 +93,7 @@ def run_recipe(
         output_dir = get_unique_run_subdir(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     copy_main_script_to_output(output_dir)
+    logger.info('Output directory: %s', str(output_dir.absolute()))
 
     if save_git:
         from lepel.extensions.git import save_git_status

@@ -9,7 +9,7 @@ def inject[T](func: type[T], *args: Any, **kwargs: Any) -> T: ...
 def inject[T](func: Callable[[], T], *args: Any, **kwargs: Any) -> T: ...
 
 
-def inject[T](func: type[T] | Callable[[], T], *args: Any, **kwargs: Any) -> T:
+def inject[T](func: type[T] | Callable[..., T], *args: Any, **kwargs: Any) -> T:
     """
     Wraps a class, injecting all arguments via :class:`DependencyManager`.
 

@@ -137,7 +137,7 @@ class DependencyManager:
         factory: Callable[..., T] | type[Any],
         *,
         name: str | None = None,
-        allow_override: bool = False,
+        allow_override: bool = True,
     ) -> None:
         """Register a dependency in the container. Any arguments in the factory
         function will be injected by the dependency manager.
@@ -156,7 +156,7 @@ class DependencyManager:
             The name to associate with the dependency of this type, by default None
         allow_override : bool
             When false, raises a RuntimeError when overriding a registered type,
-            by default False
+            by default True
 
         Raises
         ------
@@ -171,7 +171,7 @@ class DependencyManager:
         service_class: type[T],
         *,
         name: str | None = None,
-        allow_override: bool = False,
+        allow_override: bool = True,
     ) -> None:
         """Register a dependency in the container under the alias of service class,
         which must be a base class or a matching protocol. Any arguments in the factory
@@ -190,7 +190,7 @@ class DependencyManager:
             The name to associate with the dependency of this type, by default None
         allow_override : bool
             When false, raises a RuntimeError when overriding a registered type,
-            by default False
+            by default True
 
         Raises
         ------
@@ -205,7 +205,7 @@ class DependencyManager:
         service_class: type[T] | None = None,
         *,
         name: str | None = None,
-        allow_override: bool = False,
+        allow_override: bool = True,
     ) -> None:
         if service_class is None:
             try:
@@ -235,7 +235,7 @@ class DependencyManager:
         instance: Any,
         *,
         name: str | None = None,
-        allow_override: bool = False,
+        allow_override: bool = True,
     ) -> None:
         """Register a dependency in the container.
 
@@ -250,7 +250,7 @@ class DependencyManager:
             The name to associate with the dependency of this type, by default None
         allow_override : bool
             When false, raises a RuntimeError when overriding a registered type,
-            by default False
+            by default True
 
         Raises
         ------
@@ -265,7 +265,7 @@ class DependencyManager:
         service_class: type[T],
         *,
         name: str | None = None,
-        allow_override: bool = False,
+        allow_override: bool = True,
     ) -> None:
         """Register a dependency in the container under the alias of service class,
         which must be a base class or a matching protocol.
@@ -280,7 +280,7 @@ class DependencyManager:
             The name to associate with the dependency of this type, by default None
         allow_override : bool
             When false, raises a RuntimeError when overriding a registered type,
-            by default False
+            by default True
 
         Raises
         ------
@@ -295,7 +295,7 @@ class DependencyManager:
         service_class: type[T] | None = None,
         *,
         name: str | None = None,
-        allow_override: bool = False,
+        allow_override: bool = True,
     ) -> None:
         def factory():
             return instance
